@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block header_title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+  {% if message %}
+    <p><strong>{{ message }}</strong></p>
+  {% endif %}
+  {% if error_message %}
+    <p><strong>{{ error_message }}</strong></p>
+  {% endif %}
+
+  <div class="split-layout">
+    <section>
+      <h2>{{ page_title }}</h2>
+
+      {% set source = form_values if form_values else event %}
+      <form method="post" action="{{ form_action }}">
+        <label>
+          Event Name
+          <input name="name" required value="{{ source.name if source else '' }}" placeholder="Bangalore City Marathon 2026" />
+        </label>
+
+        <p>Slug: {{ event.slug if event else auto_slug }}</p>
+        <p>Slugs are generated automatically from the event name. If a slug already exists, a number is added.</p>
+
+        <label>
+          Event Date
+          <input type="date" name="event_date" value="{{ source.event_date if source and source.event_date else '' }}" />
+        </label>
+
+        <label>
+          Location
+          <input name="location" value="{{ source.location if source and source.location else '' }}" placeholder="Bangalore" />
+        </label>
+
+        <label>
+          Status
+          <select name="status">
+            {% set current_status = source.status if source and source.status else 'draft' %}
+            {% for status_option in status_options %}
+              <option value="{{ status_option }}" {% if current_status == status_option %}selected{% endif %}>{{ status_option }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <p><button type="submit">{{ submit_label }}</button></p>
+      </form>
+
+      {% if event %}
+        <form method="post" action="/admin/events/{{ event.id }}/delete">
+          <p><button type="submit">Delete Event</button></p>
+        </form>
+      {% endif %}
+    </section>
+
+    {% if event %}
+      <aside>
+        <h2>Participants</h2>
+        <p>Current count: {{ participant_count }}</p>
+        <p>Upload a CSV or XLSX file with `bib_number` and `full_name`. It also accepts common alternatives like `bib`, `name`, `first_name`, and `last_name`.</p>
+
+        <h3>Add Participant</h3>
+        <form method="post" action="/admin/events/{{ event.id }}/participants/add">
+          <label>
+            Bib Number
+            <input name="bib_number" required />
+          </label>
+          <label>
+            Full Name
+            <input name="full_name" required />
+          </label>
+          <p><button type="submit">Add Participant</button></p>
+        </form>
+
+        <h3>Upload Participant File</h3>
+        <form method="post" action="/admin/events/{{ event.id }}/participants/upload" enctype="multipart/form-data">
+          <label>
+            Participant File
+            <input type="file" name="participant_file" accept=".csv,.xlsx,.xlsm" required />
+          </label>
+          <p><button type="submit">Upload Participants</button></p>
+        </form>
+
+        <form method="post" action="/admin/events/{{ event.id }}/participants/delete-all">
+          <p><button type="submit">Delete All Participants</button></p>
+        </form>
+
+        <h3>Participant List</h3>
+        {% if participants %}
+          <table>
+            <thead>
+              <tr>
+                <th>Bib Number</th>
+                <th>Full Name</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for participant in participants %}
+                <tr>
+                  <td>
+                    <input form="update-participant-{{ participant.id }}" name="bib_number" value="{{ participant.bib_number }}" required />
+                  </td>
+                  <td>
+                    <input form="update-participant-{{ participant.id }}" name="full_name" value="{{ participant.full_name }}" required />
+                  </td>
+                  <td>{{ participant.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+                  <td>
+                    <form id="update-participant-{{ participant.id }}" method="post" action="/admin/events/{{ event.id }}/participants/{{ participant.id }}/update">
+                      <button type="submit">Save</button>
+                    </form>
+                    <form method="post" action="/admin/events/{{ event.id }}/participants/{{ participant.id }}/delete">
+                      <button type="submit">Delete</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p>No participants uploaded for this event yet.</p>
+        {% endif %}
+      </aside>
+    {% endif %}
+  </div>
+{% endblock %}

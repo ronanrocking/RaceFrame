@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ title if title else "RaceFrame Admin" }}</title>
+    <link rel="stylesheet" href="/static/admin.css?v=2" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header>
+        <h1>{% block header_title %}Admin{% endblock %}</h1>
+        <p><a href="/admin">Dashboard</a></p>
+      </header>
+      {% block content %}{% endblock %}
+    </div>
+  </body>
+</html>

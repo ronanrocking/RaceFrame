@@ -1,0 +1,17 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: raceframe-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:8008:8000"
+    networks:
+      - raceframe-internal
+
+networks:
+  raceframe-internal:
+    external: true

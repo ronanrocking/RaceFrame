@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block header_title %}Admin Dashboard{% endblock %}
+
+{% block content %}
+  {% if message %}
+    <p><strong>{{ message }}</strong></p>
+  {% endif %}
+
+  <section>
+    <h2>Events</h2>
+    <p>This admin panel currently supports event setup and participant imports.</p>
+    <p><a href="/admin/events/new">Create New Event</a></p>
+  </section>
+
+  <section>
+    <h3>Existing Events</h3>
+    <p>{{ events|length }} event{{ "" if events|length == 1 else "s" }}</p>
+
+    {% if events %}
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Slug</th>
+            <th>Date</th>
+            <th>Location</th>
+            <th>Status</th>
+            <th>Participants</th>
+            <th>Created</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in events %}
+            <tr>
+              <td>{{ item.event.name }}</td>
+              <td>{{ item.event.slug }}</td>
+              <td>{{ item.event.event_date if item.event.event_date else "Not set" }}</td>
+              <td>{{ item.event.location if item.event.location else "Not set" }}</td>
+              <td>{{ item.event.status }}</td>
+              <td>{{ item.participant_count }}</td>
+              <td>{{ item.event.created_at.strftime("%Y-%m-%d") }}</td>
+              <td><a href="/admin/events/{{ item.event.id }}/edit">Edit Event</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>No events yet.</p>
+      <p><a href="/admin/events/new">Create First Event</a></p>
+    {% endif %}
+  </section>
+{% endblock %}
