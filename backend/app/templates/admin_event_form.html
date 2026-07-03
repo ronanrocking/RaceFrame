@@ -1,41 +1,67 @@
 {% extends "base.html" %}
 
+{% block body_class %}admin-theme {% if not event %}admin-dashboard-page admin-create-page{% else %}admin-edit-page{% endif %}{% endblock %}
+{% block shell_class %}admin-shell{% endblock %}
+{% block site_nav %}
+  <a class="site-nav-link {% if request.url.path.startswith('/upload') %}is-active{% endif %}" href="/upload">Upload</a>
+  <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" href="/user">User</a>
+{% endblock %}
+{% block site_marquee %}{% endblock %}
+{% block header_eyebrow %}{% endblock %}
 {% block header_title %}{{ page_title }}{% endblock %}
+{% block header_subtitle %}{% endblock %}
+{% block header_actions %}
+  {% if not event %}
+    <a class="admin-button admin-button-secondary" href="/admin">Back to Dashboard</a>
+  {% endif %}
+  {% if event %}
+    <a class="admin-button admin-button-secondary" href="/admin">Back to Dashboard</a>
+  {% endif %}
+{% endblock %}
 
 {% block content %}
   {% if message %}
-    <p><strong>{{ message }}</strong></p>
+    <p class="message message-success admin-message">{{ message }}</p>
   {% endif %}
   {% if error_message %}
-    <p><strong>{{ error_message }}</strong></p>
+    <p class="message message-error admin-message">{{ error_message }}</p>
   {% endif %}
 
-  <div class="split-layout">
-    <section>
-      <h2>{{ page_title }}</h2>
+  <div class="admin-layout {% if not event %}admin-create-layout{% endif %}">
+    <section class="admin-section admin-section-main">
+      <div class="admin-section-header">
+        <div>
+          {% if event %}
+            <p class="admin-section-label">Event Setup</p>
+          {% endif %}
+          <h2>{{ page_title }}</h2>
+        </div>
+        <span class="admin-badge {% if event and event.status == 'published' %}admin-badge-success{% else %}admin-badge-muted{% endif %}">
+          {{ (event.status if event else (form_values.status if form_values and form_values.status else 'draft'))|upper }}
+        </span>
+      </div>
 
       {% set source = form_values if form_values else event %}
-      <form method="post" action="{{ form_action }}">
-        <label>
-          Event Name
+      <form method="post" action="{{ form_action }}" class="admin-form">
+        <label class="admin-field">
+          <span class="admin-field-label">Event Name</span>
           <input name="name" required value="{{ source.name if source else '' }}" placeholder="Bangalore City Marathon 2026" />
         </label>
 
-        <p>Slug: {{ event.slug if event else auto_slug }}</p>
-        <p>Slugs are generated automatically from the event name. If a slug already exists, a number is added.</p>
+        <div class="admin-form-grid">
+          <label class="admin-field">
+            <span class="admin-field-label">Event Date</span>
+            <input type="date" name="event_date" value="{{ source.event_date if source and source.event_date else '' }}" />
+          </label>
 
-        <label>
-          Event Date
-          <input type="date" name="event_date" value="{{ source.event_date if source and source.event_date else '' }}" />
-        </label>
+          <label class="admin-field">
+            <span class="admin-field-label">Location</span>
+            <input name="location" value="{{ source.location if source and source.location else '' }}" placeholder="Bangalore" />
+          </label>
+        </div>
 
-        <label>
-          Location
-          <input name="location" value="{{ source.location if source and source.location else '' }}" placeholder="Bangalore" />
-        </label>
-
-        <label>
-          Status
+        <label class="admin-field">
+          <span class="admin-field-label">Status</span>
           <select name="status">
             {% set current_status = source.status if source and source.status else 'draft' %}
             {% for status_option in status_options %}
@@ -44,51 +70,102 @@
           </select>
         </label>
 
-        <p><button type="submit">{{ submit_label }}</button></p>
+        <div class="admin-form-actions">
+          <button class="admin-button admin-button-primary" type="submit">{{ submit_label }}</button>
+        </div>
       </form>
 
       {% if event %}
-        <form method="post" action="/admin/events/{{ event.id }}/delete">
-          <p><button type="submit">Delete Event</button></p>
-        </form>
+        <div class="admin-danger-card">
+          <div>
+            <p class="admin-note-label">Danger Zone</p>
+            <p class="admin-danger-copy">Deleting an event also removes its participant rows and related admin records.</p>
+          </div>
+          <form method="post" action="/admin/events/{{ event.id }}/delete">
+            <button class="admin-button admin-button-danger" type="submit">Delete Event</button>
+          </form>
+        </div>
       {% endif %}
     </section>
 
     {% if event %}
-      <aside>
-        <h2>Participants</h2>
-        <p>Current count: {{ participant_count }}</p>
-        <p>Upload a CSV or XLSX file with `bib_number` and `full_name`. It also accepts common alternatives like `bib`, `name`, `first_name`, and `last_name`.</p>
+      <aside class="admin-sidebar">
+        <section class="admin-section admin-side-block">
+          <div class="admin-section-header">
+            <div>
+              <p class="admin-section-label">Roster</p>
+              <h3>Participants</h3>
+            </div>
+            <span class="admin-panel-meta">{{ participant_count }} loaded</span>
+          </div>
+          <p class="admin-card-copy">Upload a CSV or XLSX file with `bib_number` and `full_name`. Common alternate headers are accepted too.</p>
+        </section>
 
-        <h3>Add Participant</h3>
-        <form method="post" action="/admin/events/{{ event.id }}/participants/add">
-          <label>
-            Bib Number
-            <input name="bib_number" required />
-          </label>
-          <label>
-            Full Name
-            <input name="full_name" required />
-          </label>
-          <p><button type="submit">Add Participant</button></p>
-        </form>
+        <section class="admin-section admin-side-block">
+          <div class="admin-section-header">
+            <div>
+              <p class="admin-section-label">Quick Add</p>
+              <h3>Add Participant</h3>
+            </div>
+          </div>
+          <form method="post" action="/admin/events/{{ event.id }}/participants/add" class="admin-form">
+            <label class="admin-field">
+              <span class="admin-field-label">Bib Number</span>
+              <input name="bib_number" required />
+            </label>
+            <label class="admin-field">
+              <span class="admin-field-label">Full Name</span>
+              <input name="full_name" required />
+            </label>
+            <button class="admin-button admin-button-primary admin-button-block" type="submit">Add Participant</button>
+          </form>
+        </section>
 
-        <h3>Upload Participant File</h3>
-        <form method="post" action="/admin/events/{{ event.id }}/participants/upload" enctype="multipart/form-data">
-          <label>
-            Participant File
-            <input type="file" name="participant_file" accept=".csv,.xlsx,.xlsm" required />
-          </label>
-          <p><button type="submit">Upload Participants</button></p>
-        </form>
+        <section class="admin-section admin-side-block">
+          <div class="admin-section-header">
+            <div>
+              <p class="admin-section-label">Bulk Import</p>
+              <h3>Upload Participant File</h3>
+            </div>
+          </div>
+          <form method="post" action="/admin/events/{{ event.id }}/participants/upload" enctype="multipart/form-data" class="admin-form">
+            <label class="admin-field">
+              <span class="admin-field-label">Participant File</span>
+              <input type="file" name="participant_file" accept=".csv,.xlsx,.xlsm" required />
+            </label>
+            <button class="admin-button admin-button-secondary admin-button-block" type="submit">Upload Participants</button>
+          </form>
+        </section>
 
-        <form method="post" action="/admin/events/{{ event.id }}/participants/delete-all">
-          <p><button type="submit">Delete All Participants</button></p>
-        </form>
+        <section class="admin-section admin-side-block admin-side-block-danger">
+          <div class="admin-section-header">
+            <div>
+              <p class="admin-section-label">Danger Zone</p>
+              <h3>Delete All Participants</h3>
+            </div>
+          </div>
+          <p class="admin-card-copy">Use this only when you are intentionally replacing the entire roster with a fresh import.</p>
+          <form method="post" action="/admin/events/{{ event.id }}/participants/delete-all">
+            <button class="admin-button admin-button-danger admin-button-block" type="submit">Delete All Participants</button>
+          </form>
+        </section>
+      </aside>
+    {% endif %}
+  </div>
 
-        <h3>Participant List</h3>
-        {% if participants %}
-          <table>
+  {% if event %}
+    <section class="admin-section">
+      <div class="admin-section-header">
+        <div>
+          <p class="admin-section-label">Editable Roster</p>
+          <h2>Participant List</h2>
+        </div>
+        <span class="admin-panel-meta">{{ participants|length }} row{{ "" if participants|length == 1 else "s" }}</span>
+      </div>
+
+      {% if participants %}
+        <div class="admin-table-wrap">
+          <table class="admin-table">
             <thead>
               <tr>
                 <th>Bib Number</th>
@@ -108,21 +185,105 @@
                   </td>
                   <td>{{ participant.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
                   <td>
-                    <form id="update-participant-{{ participant.id }}" method="post" action="/admin/events/{{ event.id }}/participants/{{ participant.id }}/update">
-                      <button type="submit">Save</button>
-                    </form>
-                    <form method="post" action="/admin/events/{{ event.id }}/participants/{{ participant.id }}/delete">
-                      <button type="submit">Delete</button>
+                    <div class="admin-table-actions">
+                      <form id="update-participant-{{ participant.id }}" method="post" action="/admin/events/{{ event.id }}/participants/{{ participant.id }}/update">
+                        <button class="admin-button admin-button-secondary admin-button-small" type="submit">Save</button>
+                      </form>
+                      <form method="post" action="/admin/events/{{ event.id }}/participants/{{ participant.id }}/delete">
+                        <button class="admin-button admin-button-danger admin-button-small" type="submit">Delete</button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="admin-empty-state admin-empty-state-tight">
+          <h4>No participants yet</h4>
+          <p>Add people manually or upload a file to populate this event roster.</p>
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="admin-section">
+      <div class="admin-section-header">
+        <div>
+          <p class="admin-section-label">Photo Review</p>
+          <h2>Uploaded Photos</h2>
+        </div>
+        <span class="admin-panel-meta">{{ photo_count }} photo{{ "" if photo_count == 1 else "s" }}</span>
+      </div>
+      <p class="admin-card-copy">Inspect uploaded event photos, open stored images, review OCR status, and remove bad data if needed.</p>
+
+      <div class="admin-danger-inline">
+        <form method="post" action="/admin/events/{{ event.id }}/photos/delete-all">
+          <button class="admin-button admin-button-danger" type="submit">Delete All Event Photos</button>
+        </form>
+      </div>
+
+      {% if photo_items %}
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>File</th>
+                <th>Image Link</th>
+                <th>Status</th>
+                <th>Content Type</th>
+                <th>Detections</th>
+                <th>Matches</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in photo_items %}
+                <tr>
+                  <td>
+                    <strong>{{ item.photo.file_name }}</strong><br />
+                    {{ item.photo.file_size }} bytes<br />
+                    <span class="muted-text">{{ item.photo.original_object_key }}</span>
+                  </td>
+                  <td>
+                    {% if item.photo_url %}
+                      <a class="admin-inline-link" href="{{ item.photo_url }}" target="_blank" rel="noreferrer">Open Image</a>
+                    {% else %}
+                      Not available
+                    {% endif %}
+                  </td>
+                  <td>
+                    <strong>{{ item.photo.status }}</strong>
+                    {% if item.latest_job %}
+                      <br />
+                      Job: {{ item.latest_job.status }}
+                    {% endif %}
+                    {% if item.latest_job and item.latest_job.error_message %}
+                      <br />
+                      <span class="status-error">{{ item.latest_job.error_message }}</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ item.photo.content_type }}</td>
+                  <td>{{ item.photo.detections|length }}</td>
+                  <td>{{ item.photo.matches|length }}</td>
+                  <td>{{ item.photo.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+                  <td>
+                    <form method="post" action="/admin/events/{{ event.id }}/photos/{{ item.photo.id }}/delete">
+                      <button class="admin-button admin-button-danger admin-button-small" type="submit">Delete</button>
                     </form>
                   </td>
                 </tr>
               {% endfor %}
             </tbody>
           </table>
-        {% else %}
-          <p>No participants uploaded for this event yet.</p>
-        {% endif %}
-      </aside>
-    {% endif %}
-  </div>
+        </div>
+      {% else %}
+        <div class="admin-empty-state admin-empty-state-tight">
+          <h4>No photos uploaded yet</h4>
+          <p>The photographer workflow can start sending files here once the event is ready.</p>
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
 {% endblock %}

@@ -23,6 +23,16 @@ The MVP is intentionally narrow:
 - automatic OCR/text detection from uploaded photos
 - participant-photo matching based on detected bib text
 
+Current implemented slice as of July 3, 2026:
+
+- FastAPI backend deployed on OCI VPS
+- Postgres deployed on OCI VPS
+- server-rendered admin panel available at `/admin`
+- event creation/edit/delete is implemented
+- participant browser CRUD is implemented
+- participant CSV/XLSX import is implemented
+- public search/photo pipeline is not implemented yet
+
 Not in scope yet:
 
 - login/auth system
@@ -45,6 +55,12 @@ Only these tables are currently in scope:
 - `photo_participant_matches`
 
 No extra database tables should be assumed unless explicitly added later.
+
+Current live implementation note:
+
+- only `events` and `participants` are implemented for app logic right now
+- an `admin_session_locks` table exists as a temporary infrastructure table for admin-session control
+- the photo-related tables are still planned, not built
 
 ## Database Intent
 
@@ -178,6 +194,13 @@ Expected production layout for MVP:
 - Cloudflare R2 stores originals and thumbnails
 - OCR provider processes images externally
 
+Current deployed shape:
+
+- OCI VPS runs the FastAPI backend in Docker
+- OCI VPS runs Postgres in Docker
+- Cloudflare Tunnel exposes the backend publicly
+- current public admin hostname is `raceframe.ronanrocking.com`
+
 ## Implementation Order Agreed So Far
 
 Recommended setup order:
@@ -228,6 +251,14 @@ Database/ER reference exists in:
 
 - [db-design.md](D:\PWD\Porjects\raceframe\docs\handoff\db-design.md)
 
+OCI/backend deployment reference exists in:
+
+- [oci-raceframe-backend.md](D:\PWD\Porjects\raceframe\docs\handoff\oci-raceframe-backend.md)
+
+Server setup reference exists in:
+
+- [raceframe-server-setup.md](D:\PWD\Porjects\raceframe\docs\handoff\raceframe-server-setup.md)
+
 ## Guidance For Future Agents
 
 - Do not introduce auth tables yet unless explicitly requested.
@@ -235,3 +266,6 @@ Database/ER reference exists in:
 - Treat cloud storage and relational storage as separate concerns.
 - Preserve `event_id` in `photo_participant_matches`.
 - Prefer simple, shippable architecture over premature abstraction.
+- The current admin panel is intentionally plain HTML for workflow validation, not final design.
+- Slugs are auto-generated from event names and should not be user-editable in the current flow.
+- Participant uploads currently upsert by `(event_id, bib_number)` rather than replacing the whole event roster.

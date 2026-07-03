@@ -1,54 +1,89 @@
 {% extends "base.html" %}
 
+{% block body_class %}admin-theme admin-dashboard-page{% endblock %}
+{% block shell_class %}admin-shell{% endblock %}
+
+{% block site_nav %}
+  <a class="site-nav-link {% if request.url.path.startswith('/upload') %}is-active{% endif %}" href="/upload">Upload</a>
+  <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" href="/user">User</a>
+{% endblock %}
+
+{% block site_marquee %}{% endblock %}
+
 {% block header_title %}Admin Dashboard{% endblock %}
+{% block header_actions %}{% endblock %}
 
 {% block content %}
+  {% set metrics = namespace(published=0) %}
+  {% for item in events %}
+    {% if item.event.status == "published" %}
+      {% set metrics.published = metrics.published + 1 %}
+    {% endif %}
+  {% endfor %}
+
   {% if message %}
-    <p><strong>{{ message }}</strong></p>
+    <p class="message message-success admin-message">{{ message }}</p>
   {% endif %}
 
-  <section>
-    <h2>Events</h2>
-    <p>This admin panel currently supports event setup and participant imports.</p>
-    <p><a href="/admin/events/new">Create New Event</a></p>
+  <section class="admin-dashboard-strip">
+    <div class="admin-dashboard-stat">
+      <span>Events</span>
+      <strong>{{ metrics.published }}</strong>
+    </div>
+    <div class="admin-dashboard-stat">
+      <span>Drafts</span>
+      <strong>{{ events|length - metrics.published }}</strong>
+    </div>
+    <div class="admin-dashboard-stat">
+      <span>Participants</span>
+      <strong>{{ events|sum(attribute='participant_count') if events else 0 }}</strong>
+    </div>
+    <div class="admin-dashboard-action">
+      <a class="admin-button admin-button-primary" href="/admin/events/new">Create Event</a>
+    </div>
   </section>
 
-  <section>
-    <h3>Existing Events</h3>
-    <p>{{ events|length }} event{{ "" if events|length == 1 else "s" }}</p>
+  <section class="admin-dashboard-table-section">
+    <h2>Current Events</h2>
 
     {% if events %}
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Slug</th>
-            <th>Date</th>
-            <th>Location</th>
-            <th>Status</th>
-            <th>Participants</th>
-            <th>Created</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in events %}
+      <div class="admin-dashboard-table-wrap">
+        <table class="admin-dashboard-table">
+          <thead>
             <tr>
-              <td>{{ item.event.name }}</td>
-              <td>{{ item.event.slug }}</td>
-              <td>{{ item.event.event_date if item.event.event_date else "Not set" }}</td>
-              <td>{{ item.event.location if item.event.location else "Not set" }}</td>
-              <td>{{ item.event.status }}</td>
-              <td>{{ item.participant_count }}</td>
-              <td>{{ item.event.created_at.strftime("%Y-%m-%d") }}</td>
-              <td><a href="/admin/events/{{ item.event.id }}/edit">Edit Event</a></td>
+              <th>Event Name</th>
+              <th>Date</th>
+              <th>Location</th>
+              <th>Status</th>
+              <th>Participants</th>
+              <th>Created</th>
+              <th>Open</th>
             </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {% for item in events %}
+              <tr>
+                <td>
+                  <span class="admin-event-name">{{ item.event.name }}</span>
+                  <span class="admin-event-slug">{{ item.event.slug }}</span>
+                </td>
+                <td>{{ item.event.event_date if item.event.event_date else "-" }}</td>
+                <td>{{ item.event.location if item.event.location else "-" }}</td>
+                <td>
+                  <span class="admin-status-pill {% if item.event.status == 'published' %}admin-status-pill-published{% else %}admin-status-pill-draft{% endif %}">
+                    {{ item.event.status }}
+                  </span>
+                </td>
+                <td>{{ item.participant_count }}</td>
+                <td>{{ item.event.created_at.strftime("%Y-%m-%d") }}</td>
+                <td><a class="admin-open-link" href="/admin/events/{{ item.event.id }}/edit">Open</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     {% else %}
-      <p>No events yet.</p>
-      <p><a href="/admin/events/new">Create First Event</a></p>
+      <p class="admin-dashboard-empty">No current events.</p>
     {% endif %}
   </section>
 {% endblock %}

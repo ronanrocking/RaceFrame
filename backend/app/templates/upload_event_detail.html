@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block body_class %}admin-theme admin-dashboard-page upload-detail-page{% endblock %}
+{% block shell_class %}admin-shell{% endblock %}
+
+{% block site_nav %}
+  <a class="site-nav-link" href="/admin">Admin</a>
+  <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" href="/user">User</a>
+{% endblock %}
+
+{% block site_marquee %}{% endblock %}
+
+{% block header_title %}Upload Photos{% endblock %}
+{% block header_actions %}
+  <a class="admin-button admin-button-secondary" href="/upload">Back to Events</a>
+{% endblock %}
+
+{% block content %}
+  {% if message %}
+    <p class="message message-{{ message_level }} admin-message">{{ message }}</p>
+  {% endif %}
+
+  <section class="admin-dashboard-strip upload-dashboard-strip">
+    <div class="admin-dashboard-stat">
+      <span>Event</span>
+      <strong>{{ event.name }}</strong>
+    </div>
+    <div class="admin-dashboard-stat">
+      <span>Date</span>
+      <strong>{{ event.event_date if event.event_date else "-" }}</strong>
+    </div>
+    <div class="admin-dashboard-stat">
+      <span>Participants</span>
+      <strong>{{ participant_count }}</strong>
+    </div>
+    <div class="admin-dashboard-stat">
+      <span>Uploads</span>
+      <strong>{{ photo_items|length }}</strong>
+    </div>
+  </section>
+
+  <section class="admin-section upload-form-section">
+    <div class="admin-section-header">
+      <div>
+        <p class="admin-section-label">Event Slug</p>
+        <h2>{{ event.slug }}</h2>
+      </div>
+      <span class="admin-panel-meta">{{ event.location if event.location else "Location not set" }}</span>
+    </div>
+
+    <form method="post" action="/upload/events/{{ event.id }}" enctype="multipart/form-data" class="admin-form upload-photo-form">
+      <label class="admin-field upload-file-field">
+        <span class="admin-field-label">Photo Files</span>
+        <input type="file" name="photo_files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple required />
+      </label>
+      <div class="admin-form-actions">
+        <button class="admin-button admin-button-primary" type="submit">Upload Photos</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="admin-section">
+    <div class="admin-section-header">
+      <div>
+        <p class="admin-section-label">Photo Review</p>
+        <h2>Recent Uploads</h2>
+      </div>
+      <span class="admin-panel-meta">{{ photo_items|length }} row{{ "" if photo_items|length == 1 else "s" }}</span>
+    </div>
+
+    {% if photo_items %}
+      <div class="admin-table-wrap">
+        <table class="admin-table upload-table">
+          <thead>
+            <tr>
+              <th>Preview</th>
+              <th>File</th>
+              <th>Status</th>
+              <th>Detected Text</th>
+              <th>Matches</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in photo_items %}
+              <tr>
+                <td>
+                  {% if item.photo_url %}
+                    <a class="admin-open-link" href="{{ item.photo_url }}" target="_blank" rel="noreferrer">Open</a>
+                  {% else %}
+                    <span class="muted-text">Not available</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <span class="admin-event-name">{{ item.photo.file_name }}</span>
+                  <span class="admin-event-slug">{{ item.photo.file_size }} bytes</span>
+                </td>
+                <td>
+                  <span class="admin-status-pill upload-status-pill">{{ item.photo.status }}</span>
+                  {% if item.latest_job %}
+                    <span class="admin-event-slug">Job: {{ item.latest_job.status }}</span>
+                  {% endif %}
+                  {% if item.latest_job and item.latest_job.error_message %}
+                    <span class="status-error upload-error-text">{{ item.latest_job.error_message }}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if item.photo.detections %}
+                    {% for detection in item.photo.detections %}
+                      <span class="upload-detection">{{ detection.detected_text }}</span>
+                    {% endfor %}
+                  {% else %}
+                    <span class="muted-text">No text captured</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if item.photo.matches %}
+                    {% for match in item.photo.matches %}
+                      <span class="upload-match">{{ match.participant.bib_number }} - {{ match.participant.full_name }}</span>
+                    {% endfor %}
+                  {% else %}
+                    <span class="muted-text">No matches yet</span>
+                  {% endif %}
+                </td>
+                <td>{{ item.photo.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="admin-empty-state admin-empty-state-tight">
+        <h4>No photos uploaded yet</h4>
+        <p>Uploaded images will appear here after processing starts.</p>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

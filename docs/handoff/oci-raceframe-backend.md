@@ -3,8 +3,8 @@
 ## Current deployment
 
 - VPS: `ssh oci`
-- backend service path: `~/server-services/raceframe-backend`
-- postgres service path: `~/server-services/raceframe-postgres`
+- backend service path: `~/raceframe/raceframe-backend`
+- postgres service path: `~/raceframe/raceframe-postgres`
 - runtime: `docker compose`
 - shared Docker network: `raceframe-internal`
 - backend container: `raceframe-backend`
@@ -65,19 +65,19 @@ Admin concurrency guard:
 
 Keep live secrets on the server only:
 
-- `~/server-services/raceframe-postgres/.env`
-- `~/server-services/raceframe-backend/.env`
+- `~/raceframe/raceframe-postgres/.env`
+- `~/raceframe/raceframe-backend/.env`
 
 Do not commit those files.
 
 ## Useful commands
 
 ```bash
-ssh oci "cd ~/server-services/raceframe-backend && docker compose ps"
-ssh oci "cd ~/server-services/raceframe-backend && docker compose logs --tail 40"
+ssh oci "cd ~/raceframe/raceframe-backend && docker compose ps"
+ssh oci "cd ~/raceframe/raceframe-backend && docker compose logs --tail 40"
 ssh oci "curl -sS http://127.0.0.1:8008/health"
 ssh oci "curl -sS http://127.0.0.1:8008/admin | head"
-ssh oci "cd ~/server-services/raceframe-postgres && docker compose ps"
+ssh oci "cd ~/raceframe/raceframe-postgres && docker compose ps"
 ssh oci "docker exec raceframe-postgres pg_isready -U raceframe -d raceframe"
 ssh oci "docker exec raceframe-postgres psql -U raceframe -d raceframe -c '\dt'"
 ssh oci "docker network inspect raceframe-internal >/dev/null && echo ok"

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block body_class %}admin-theme admin-dashboard-page upload-events-page{% endblock %}
+{% block shell_class %}admin-shell{% endblock %}
+
+{% block site_nav %}
+  <a class="site-nav-link" href="/admin">Admin</a>
+  <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" href="/user">User</a>
+{% endblock %}
+
+{% block site_marquee %}{% endblock %}
+
+{% block header_title %}Photographer Upload{% endblock %}
+{% block header_actions %}{% endblock %}
+
+{% block content %}
+  {% if message %}
+    <p class="message message-{{ message_level }} admin-message">{{ message }}</p>
+  {% endif %}
+
+  <section class="upload-intro">
+    <p>Choose your event and upload event photographs to the server. OCI processing will take place automatically, and users will be matched.</p>
+  </section>
+
+  <section class="admin-dashboard-table-section">
+    <h2>Published Events</h2>
+
+    {% if events %}
+      <div class="admin-dashboard-table-wrap">
+        <table class="admin-dashboard-table">
+          <thead>
+            <tr>
+              <th>Event Name</th>
+              <th>Date</th>
+              <th>Location</th>
+              <th>Open</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for event in events %}
+              <tr>
+                <td>
+                  <span class="admin-event-name">{{ event.name }}</span>
+                  <span class="admin-event-slug">{{ event.slug }}</span>
+                </td>
+                <td>{{ event.event_date if event.event_date else "-" }}</td>
+                <td>{{ event.location if event.location else "-" }}</td>
+                <td><a class="admin-open-link" href="/upload/events/{{ event.id }}">Open</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="admin-empty-state admin-empty-state-tight">
+        <h4>No published events</h4>
+        <p>Publish an event before starting photo uploads.</p>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

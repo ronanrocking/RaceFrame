@@ -3,14 +3,40 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{{ title if title else "RaceFrame Admin" }}</title>
-    <link rel="stylesheet" href="/static/admin.css?v=2" />
+    <title>{{ title if title else "RaceFrame" }}</title>
+    <link rel="stylesheet" href="/static/admin.css?v=11" />
   </head>
-  <body>
-    <div class="page-shell">
-      <header>
-        <h1>{% block header_title %}Admin{% endblock %}</h1>
-        <p><a href="/admin">Dashboard</a></p>
+  <body class="{% block body_class %}{% endblock %}">
+    <div class="site-chrome {% block site_chrome_class %}{% endblock %}">
+      <div class="site-topbar">
+        <a class="site-brand" href="/admin">
+          <span class="site-brand-mark">Race</span><span class="site-brand-accent">Frame</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">{% block site_nav %}
+          <a class="site-nav-link {% if request.url.path.startswith('/admin') %}is-active{% endif %}" href="/admin">Admin</a>
+          <a class="site-nav-link {% if request.url.path.startswith('/upload') %}is-active{% endif %}" href="/upload">Upload</a>
+          <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" href="/user">User</a>
+          <a class="site-nav-link {% if request.url.path == '/admin/events/new' %}is-active{% endif %}" href="/admin/events/new">New Event</a>
+        {% endblock %}</nav>
+      </div>
+      {% block site_marquee %}
+        <div class="site-marquee">
+          <div class="site-marquee-text">{% block marquee_text %}RaceFrame admin control center - events - participants - uploads - user gallery{% endblock %}</div>
+        </div>
+      {% endblock %}
+    </div>
+    <div class="page-shell {% block shell_class %}{% endblock %}">
+      <header class="page-header {% block page_header_class %}{% endblock %}">
+        <div class="page-header-copy">
+          {% block header_eyebrow %}{% endblock %}
+          <h1>{% block header_title %}Admin{% endblock %}</h1>
+          {% block header_subtitle %}{% endblock %}
+        </div>
+        <div class="page-header-actions">
+          {% block header_actions %}
+            <a href="{{ nav_home_url if nav_home_url else '/admin' }}">{{ nav_home_label if nav_home_label else 'Dashboard' }}</a>
+          {% endblock %}
+        </div>
       </header>
       {% block content %}{% endblock %}
     </div>

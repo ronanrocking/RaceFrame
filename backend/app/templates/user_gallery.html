@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block header_title %}User Gallery{% endblock %}
+
+{% block content %}
+  <section>
+    <h2>Stored Photos</h2>
+    <p>This mock user page shows every stored photo together with all OCR text detections captured for that image.</p>
+  </section>
+
+  {% if photo_items %}
+    <section class="card-grid">
+      {% for item in photo_items %}
+        <article class="card">
+          <h3>{{ item.photo.file_name }}</h3>
+          <p><strong>Event:</strong> {{ item.photo.event.name if item.photo.event else "Unknown event" }}</p>
+          <p><strong>Status:</strong> {{ item.photo.status }}</p>
+          {% if item.photo_url %}
+            <p><img src="{{ item.photo_url }}" alt="{{ item.photo.file_name }}" class="gallery-image" /></p>
+          {% else %}
+            <p>Preview not available.</p>
+          {% endif %}
+          <p>
+            <strong>Detected Texts:</strong>
+            {% if item.photo.detections %}
+              {% for detection in item.photo.detections %}
+                {{ detection.detected_text }}{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            {% else %}
+              None
+            {% endif %}
+          </p>
+        </article>
+      {% endfor %}
+    </section>
+  {% else %}
+    <section>
+      <p>No photos are stored yet.</p>
+    </section>
+  {% endif %}
+{% endblock %}

@@ -35,6 +35,17 @@ from .admin import (
 from .config import settings
 from .db import Base, SessionLocal, engine, get_db
 from .models import Participant
+from .photographer import (
+    count_event_participants,
+    delete_all_event_photos,
+    delete_photo,
+    get_event_photo,
+    get_published_event,
+    ingest_photo_upload,
+    list_event_photo_items,
+    list_published_events,
+    list_user_photo_items,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -115,12 +126,15 @@ def render_event_form(
     event: object | None,
     participant_count: int = 0,
     participants: list[Participant] | None = None,
+    photo_count: int = 0,
+    photo_items: list | None = None,
     auto_slug: str | None = None,
     error_message: str | None = None,
     form_values: dict[str, str] | None = None,
 ) -> HTMLResponse:
     context = {
         "request": request,
+        "title": f"RaceFrame {page_title}",
         "page_title": page_title,
         "submit_label": submit_label,
         "form_action": form_action,
@@ -128,6 +142,8 @@ def render_event_form(
         "event": event,
         "participant_count": participant_count,
         "participants": participants or [],
+        "photo_count": photo_count,
+        "photo_items": photo_items or [],
         "auto_slug": auto_slug,
         "error_message": error_message,
         "form_values": form_values or {},
@@ -154,6 +170,7 @@ def render_existing_event_form(
 ) -> HTMLResponse:
     participants = event_participants(db, event.id)
     participant_count = len(participants)
+    photo_items = list_event_photo_items(db, event_id=event.id)
     auto_slug = generate_unique_slug(
         db,
         name=(form_values or {}).get("name", event.name) if event else "",
@@ -167,6 +184,8 @@ def render_existing_event_form(
         event=event,
         participant_count=participant_count,
         participants=participants,
+        photo_count=len(photo_items),
+        photo_items=photo_items,
         auto_slug=auto_slug,
         error_message=error_message,
         form_values=form_values,
@@ -187,6 +206,7 @@ async def health() -> dict[str, str]:
 def admin_dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     context = {
         "request": request,
+        "title": "RaceFrame Admin Dashboard",
         "events": list_events(db),
         "message": request.query_params.get("message"),
         "message_level": request.query_params.get("level", "success"),
@@ -203,6 +223,100 @@ def new_event_page(request: Request) -> HTMLResponse:
         form_action="/admin/events/new",
         event=None,
         auto_slug="Will be generated from the event name when you save.",
+    )
+
+
+@app.get("/upload", response_class=HTMLResponse)
+def photographer_event_list_page(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    context = {
+        "request": request,
+        "title": "RaceFrame Photographer Upload",
+        "events": list_published_events(db),
+        "message": request.query_params.get("message"),
+        "message_level": request.query_params.get("level", "success"),
+        "nav_home_url": "/upload",
+        "nav_home_label": "Published Events",
+    }
+    return templates.TemplateResponse("upload_events.html", context)
+
+
+@app.get("/user", response_class=HTMLResponse)
+def user_gallery_page(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    context = {
+        "request": request,
+        "title": "RaceFrame User Gallery",
+        "photo_items": list_user_photo_items(db),
+        "nav_home_url": "/user",
+        "nav_home_label": "User Gallery",
+    }
+    return templates.TemplateResponse("user_gallery.html", context)
+
+
+@app.get("/upload/events/{event_id}", response_class=HTMLResponse)
+def photographer_event_upload_page(request: Request, event_id: str, db: Session = Depends(get_db)) -> HTMLResponse:
+    event = get_published_event(db, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Published event not found.")
+
+    context = {
+        "request": request,
+        "title": f"Upload Photos - {event.name}",
+        "event": event,
+        "participant_count": count_event_participants(db, event_id=event.id),
+        "photo_items": list_event_photo_items(db, event_id=event.id),
+        "message": request.query_params.get("message"),
+        "message_level": request.query_params.get("level", "success"),
+        "nav_home_url": "/upload",
+        "nav_home_label": "Published Events",
+    }
+    return templates.TemplateResponse("upload_event_detail.html", context)
+
+
+@app.post("/upload/events/{event_id}")
+async def photographer_upload_action(
+    event_id: str,
+    photo_files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    event = get_published_event(db, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Published event not found.")
+
+    submitted_files = [photo_file for photo_file in photo_files if photo_file.filename and photo_file.filename.strip()]
+    if not submitted_files:
+        return redirect_with_message(
+            f"/upload/events/{event.id}",
+            message="Choose one or more image files before uploading.",
+            level="error",
+        )
+
+    ready_count = 0
+    failed_count = 0
+    failure_notes: list[str] = []
+
+    for photo_file in submitted_files:
+        content = await photo_file.read()
+        result = ingest_photo_upload(
+            db,
+            event=event,
+            file_name=photo_file.filename or "photo",
+            content_type=photo_file.content_type or "",
+            content=content,
+        )
+        if result.success:
+            ready_count += 1
+        else:
+            failed_count += 1
+            failure_notes.append(f"{result.file_name}: {result.message}")
+
+    message = f"Processed {len(submitted_files)} photo(s). Ready {ready_count}, failed {failed_count}."
+    if failure_notes:
+        message = f"{message} {' | '.join(failure_notes[:3])}"
+
+    return redirect_with_message(
+        f"/upload/events/{event.id}",
+        message=message,
+        level="error" if failed_count else "success",
     )
 
 
@@ -446,4 +560,35 @@ async def delete_all_participants_action(event_id: str, db: Session = Depends(ge
     return redirect_with_message(
         f"/admin/events/{event.id}/edit",
         message=f"Deleted {deleted_count} participant record{'s' if deleted_count != 1 else ''}.",
+    )
+
+
+@app.post("/admin/events/{event_id}/photos/{photo_id}/delete")
+async def delete_photo_action(
+    event_id: str,
+    photo_id: str,
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    event = get_event(db, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found.")
+
+    photo = get_event_photo(db, event_id=event.id, photo_id=photo_id)
+    if photo is None:
+        raise HTTPException(status_code=404, detail="Photo not found.")
+
+    delete_photo(db, photo=photo)
+    return redirect_with_message(f"/admin/events/{event.id}/edit", message="Photo deleted.")
+
+
+@app.post("/admin/events/{event_id}/photos/delete-all")
+async def delete_all_event_photos_action(event_id: str, db: Session = Depends(get_db)) -> RedirectResponse:
+    event = get_event(db, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found.")
+
+    deleted_count = delete_all_event_photos(db, event=event)
+    return redirect_with_message(
+        f"/admin/events/{event.id}/edit",
+        message=f"Deleted {deleted_count} photo record{'s' if deleted_count != 1 else ''}.",
     )
