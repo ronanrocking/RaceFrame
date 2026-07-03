@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 
-{% block body_class %}admin-theme admin-dashboard-page upload-detail-page{% endblock %}
+{% block body_class %}admin-theme admin-edit-page upload-detail-page{% endblock %}
 {% block shell_class %}admin-shell{% endblock %}
 
 {% block site_nav %}
-  <a class="site-nav-link" href="/admin">Admin</a>
+  <a class="site-nav-link {% if request.url.path.startswith('/upload') %}is-active{% endif %}" href="/upload">Upload</a>
   <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" href="/user">User</a>
 {% endblock %}
 
@@ -20,119 +20,250 @@
     <p class="message message-{{ message_level }} admin-message">{{ message }}</p>
   {% endif %}
 
-  <section class="admin-dashboard-strip upload-dashboard-strip">
-    <div class="admin-dashboard-stat">
-      <span>Event</span>
-      <strong>{{ event.name }}</strong>
-    </div>
-    <div class="admin-dashboard-stat">
-      <span>Date</span>
-      <strong>{{ event.event_date if event.event_date else "-" }}</strong>
-    </div>
-    <div class="admin-dashboard-stat">
-      <span>Participants</span>
-      <strong>{{ participant_count }}</strong>
-    </div>
-    <div class="admin-dashboard-stat">
-      <span>Uploads</span>
-      <strong>{{ photo_items|length }}</strong>
-    </div>
-  </section>
-
   <section class="admin-section upload-form-section">
     <div class="admin-section-header">
       <div>
-        <p class="admin-section-label">Event Slug</p>
-        <h2>{{ event.slug }}</h2>
+        <p class="admin-section-label">Event</p>
+        <h2>{{ event.name }}</h2>
       </div>
-      <span class="admin-panel-meta">{{ event.location if event.location else "Location not set" }}</span>
+      <span class="admin-panel-meta">{{ participant_count }} participant{{ "" if participant_count == 1 else "s" }}</span>
     </div>
 
-    <form method="post" action="/upload/events/{{ event.id }}" enctype="multipart/form-data" class="admin-form upload-photo-form">
+    <div class="upload-event-meta">
+      <span>Slug: {{ event.slug }}</span>
+      <span>Date: {{ event.event_date if event.event_date else "Not set" }}</span>
+      <span>Location: {{ event.location if event.location else "Not set" }}</span>
+    </div>
+
+    <form method="post" action="/upload/events/{{ event.id }}" enctype="multipart/form-data" class="admin-form upload-photo-form" data-upload-form data-concurrency="4">
       <label class="admin-field upload-file-field">
         <span class="admin-field-label">Photo Files</span>
-        <input type="file" name="photo_files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple required />
+        <input data-upload-input type="file" name="photo_files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple required />
       </label>
-      <div class="admin-form-actions">
-        <button class="admin-button admin-button-primary" type="submit">Upload Photos</button>
+
+      <div class="upload-batch-summary" data-batch-summary hidden>
+        <div class="upload-batch-summary-row">
+          <span class="admin-field-label">Batch Status</span>
+          <strong data-batch-count>0 files selected</strong>
+        </div>
+        <p data-batch-message>Select images to start building the queue.</p>
       </div>
+
+      <section class="upload-queue" data-upload-queue hidden aria-live="polite">
+        <div class="upload-queue-header">
+          <div>
+            <p class="admin-section-label">Upload Queue</p>
+            <h3>Batch Progress</h3>
+          </div>
+          <span class="admin-panel-meta" data-batch-meta>Waiting to start</span>
+        </div>
+        <div class="upload-queue-list" data-upload-list></div>
+      </section>
+
     </form>
   </section>
 
-  <section class="admin-section">
-    <div class="admin-section-header">
-      <div>
-        <p class="admin-section-label">Photo Review</p>
-        <h2>Recent Uploads</h2>
-      </div>
-      <span class="admin-panel-meta">{{ photo_items|length }} row{{ "" if photo_items|length == 1 else "s" }}</span>
-    </div>
+  <script>
+    (() => {
+      const form = document.querySelector("[data-upload-form]");
+      if (!form) return;
 
-    {% if photo_items %}
-      <div class="admin-table-wrap">
-        <table class="admin-table upload-table">
-          <thead>
-            <tr>
-              <th>Preview</th>
-              <th>File</th>
-              <th>Status</th>
-              <th>Detected Text</th>
-              <th>Matches</th>
-              <th>Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for item in photo_items %}
-              <tr>
-                <td>
-                  {% if item.photo_url %}
-                    <a class="admin-open-link" href="{{ item.photo_url }}" target="_blank" rel="noreferrer">Open</a>
-                  {% else %}
-                    <span class="muted-text">Not available</span>
-                  {% endif %}
-                </td>
-                <td>
-                  <span class="admin-event-name">{{ item.photo.file_name }}</span>
-                  <span class="admin-event-slug">{{ item.photo.file_size }} bytes</span>
-                </td>
-                <td>
-                  <span class="admin-status-pill upload-status-pill">{{ item.photo.status }}</span>
-                  {% if item.latest_job %}
-                    <span class="admin-event-slug">Job: {{ item.latest_job.status }}</span>
-                  {% endif %}
-                  {% if item.latest_job and item.latest_job.error_message %}
-                    <span class="status-error upload-error-text">{{ item.latest_job.error_message }}</span>
-                  {% endif %}
-                </td>
-                <td>
-                  {% if item.photo.detections %}
-                    {% for detection in item.photo.detections %}
-                      <span class="upload-detection">{{ detection.detected_text }}</span>
-                    {% endfor %}
-                  {% else %}
-                    <span class="muted-text">No text captured</span>
-                  {% endif %}
-                </td>
-                <td>
-                  {% if item.photo.matches %}
-                    {% for match in item.photo.matches %}
-                      <span class="upload-match">{{ match.participant.bib_number }} - {{ match.participant.full_name }}</span>
-                    {% endfor %}
-                  {% else %}
-                    <span class="muted-text">No matches yet</span>
-                  {% endif %}
-                </td>
-                <td>{{ item.photo.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% else %}
-      <div class="admin-empty-state admin-empty-state-tight">
-        <h4>No photos uploaded yet</h4>
-        <p>Uploaded images will appear here after processing starts.</p>
-      </div>
-    {% endif %}
-  </section>
+      const input = form.querySelector("[data-upload-input]");
+      const summary = form.querySelector("[data-batch-summary]");
+      const batchCount = form.querySelector("[data-batch-count]");
+      const batchMessage = form.querySelector("[data-batch-message]");
+      const batchMeta = form.querySelector("[data-batch-meta]");
+      const queue = form.querySelector("[data-upload-queue]");
+      const list = form.querySelector("[data-upload-list]");
+      const concurrency = Number.parseInt(form.dataset.concurrency || "4", 10);
+      const state = {
+        items: [],
+        active: 0,
+        started: false,
+      };
+
+      const revokeUrls = () => {
+        state.items.forEach((item) => {
+          if (item.objectUrl) {
+            URL.revokeObjectURL(item.objectUrl);
+          }
+        });
+      };
+
+      const escapeHtml = (value) =>
+        String(value).replace(/[&<>\"']/g, (char) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        }[char]));
+
+      const formatBytes = (bytes) => {
+        if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+        const units = ["B", "KB", "MB", "GB"];
+        let size = bytes;
+        let index = 0;
+        while (size >= 1024 && index < units.length - 1) {
+          size /= 1024;
+          index += 1;
+        }
+        return `${size >= 10 || index === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[index]}`;
+      };
+
+      const renderQueue = () => {
+        const total = state.items.length;
+        const completed = state.items.filter((item) => item.status === "ready" || item.status === "failed").length;
+        const uploading = state.items.filter((item) => item.status === "uploading").length;
+        const processing = state.items.filter((item) => item.status === "processing").length;
+        const ready = state.items.filter((item) => item.status === "ready").length;
+        const failed = state.items.filter((item) => item.status === "failed").length;
+
+        summary.hidden = total === 0;
+        queue.hidden = total === 0;
+        batchCount.textContent = `${total} file${total === 1 ? "" : "s"} selected`;
+        batchMeta.textContent = state.started
+          ? `${completed}/${total} done | ${uploading} uploading | ${processing} processing`
+          : "Queued and ready";
+
+        if (!state.started) {
+          batchMessage.textContent = total
+            ? `This batch will run up to ${concurrency} uploads at a time.`
+            : "Select images to start building the queue.";
+        } else if (completed < total) {
+          batchMessage.textContent = `Ready ${ready}, failed ${failed}, ${uploading + processing} still in flight.`;
+        } else {
+          batchMessage.textContent = `Batch finished. Ready ${ready}, failed ${failed}.`;
+        }
+
+        list.innerHTML = state.items.map((item) => `
+          <a class="upload-queue-card upload-queue-card-${item.status}" href="${escapeHtml(item.href)}" target="_blank" rel="noreferrer">
+            <div class="upload-queue-card-icon" aria-hidden="true"></div>
+            <strong>${escapeHtml(item.file.name)}</strong>
+            <span class="upload-queue-card-size">${formatBytes(item.file.size)}</span>
+            <span class="admin-status-pill upload-queue-status upload-queue-status-${item.status}">${escapeHtml(item.label)}</span>
+            <div class="upload-progress-track">
+              <span class="upload-progress-fill" style="width:${item.progress}%;"></span>
+            </div>
+            <p class="upload-queue-note">${escapeHtml(item.note)}</p>
+          </a>
+        `).join("");
+      };
+
+      const buildItems = () => {
+        revokeUrls();
+        state.items = Array.from(input.files || []).map((file, index) => {
+          const objectUrl = URL.createObjectURL(file);
+          return {
+            id: `${file.name}-${file.size}-${index}`,
+            file,
+            objectUrl,
+            href: objectUrl,
+            progress: 0,
+            status: "queued",
+            label: "Queued",
+            note: "Waiting to start.",
+          };
+        });
+        state.active = 0;
+        state.started = false;
+        renderQueue();
+        if (state.items.length > 0) {
+          state.started = true;
+          input.disabled = true;
+          renderQueue();
+          startNext();
+        }
+      };
+
+      const finishBatch = () => {
+        input.disabled = false;
+        state.started = false;
+      };
+
+      const startNext = () => {
+        while (state.active < concurrency) {
+          const nextItem = state.items.find((item) => item.status === "queued");
+          if (!nextItem) break;
+          uploadItem(nextItem);
+        }
+
+        const allDone = state.items.length > 0
+          && state.items.every((item) => item.status === "ready" || item.status === "failed");
+        if (allDone) {
+          finishBatch();
+        }
+      };
+
+      const uploadItem = (item) => {
+        state.active += 1;
+        item.status = "uploading";
+        item.label = "Uploading";
+        item.note = "Sending file to the server.";
+        renderQueue();
+
+        const formData = new FormData();
+        formData.append("photo_files", item.file, item.file.name);
+
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", form.action);
+        xhr.setRequestHeader("Accept", "application/json");
+        xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+
+        xhr.upload.addEventListener("progress", (event) => {
+          if (!event.lengthComputable) return;
+          item.progress = Math.max(item.progress, Math.round((event.loaded / event.total) * 100));
+          if (item.progress >= 100 && item.status === "uploading") {
+            item.status = "processing";
+            item.label = "Processing";
+            item.note = "Upload complete. OCR processing is finishing.";
+          }
+          renderQueue();
+        });
+
+        xhr.addEventListener("load", () => {
+          state.active -= 1;
+          let response = null;
+          try {
+            response = JSON.parse(xhr.responseText || "{}");
+          } catch (error) {
+            response = null;
+          }
+
+          const result = response && Array.isArray(response.results) ? response.results[0] : null;
+          item.progress = 100;
+
+          if (xhr.status >= 200 && xhr.status < 300 && result && result.success) {
+            item.status = "ready";
+            item.label = "Ready";
+            item.note = result.message || "Uploaded and processed.";
+            item.href = result.photo_url || item.objectUrl;
+          } else {
+            item.status = "failed";
+            item.label = "Failed";
+            item.note = (result && (result.error_message || result.message)) || (response && response.message) || "Upload failed.";
+          }
+
+          renderQueue();
+          startNext();
+        });
+
+        xhr.addEventListener("error", () => {
+          state.active -= 1;
+          item.progress = 100;
+          item.status = "failed";
+          item.label = "Failed";
+          item.note = "Network error while uploading this file.";
+          renderQueue();
+          startNext();
+        });
+
+        xhr.send(formData);
+      };
+
+      input.addEventListener("change", buildItems);
+
+      window.addEventListener("beforeunload", revokeUrls);
+    })();
+  </script>
 {% endblock %}

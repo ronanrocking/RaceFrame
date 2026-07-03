@@ -54,6 +54,21 @@ class UserPhotoListItem:
     photo_url: str | None
 
 
+@dataclass
+class UserEventListItem:
+    event: Event
+    participant_count: int
+    photo_count: int
+
+
+@dataclass
+class UserSearchPhotoItem:
+    photo: Photo
+    photo_url: str | None
+    matched_participants: list[Participant]
+    direct_match_values: list[str]
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -68,6 +83,30 @@ def list_published_events(session: Session) -> list[Event]:
         .scalars()
         .all()
     )
+
+
+def list_user_events(session: Session) -> list[UserEventListItem]:
+    rows = session.execute(
+        select(
+            Event,
+            func.count(func.distinct(Participant.id)),
+            func.count(func.distinct(Photo.id)),
+        )
+        .outerjoin(Participant, Participant.event_id == Event.id)
+        .outerjoin(Photo, Photo.event_id == Event.id)
+        .where(Event.status == PUBLISHED_STATUS)
+        .group_by(Event.id)
+        .order_by(Event.event_date.asc(), Event.created_at.desc())
+    ).all()
+
+    return [
+        UserEventListItem(
+            event=row[0],
+            participant_count=int(row[1] or 0),
+            photo_count=int(row[2] or 0),
+        )
+        for row in rows
+    ]
 
 
 def get_published_event(session: Session, event_id: str) -> Event | None:
@@ -132,6 +171,117 @@ def list_user_photo_items(session: Session) -> list[UserPhotoListItem]:
     )
 
     return [UserPhotoListItem(photo=photo, photo_url=safe_photo_access_url(photo.original_object_key)) for photo in photos]
+
+
+def search_event_photo_items(
+    session: Session,
+    *,
+    event: Event,
+    search_term: str,
+) -> tuple[list[UserSearchPhotoItem], list[Participant]]:
+    normalized_search_term = " ".join(search_term.strip().lower().split())
+    normalized_bib_token = normalize_match_token(search_term)
+    if not normalized_search_term and not normalized_bib_token:
+        return [], []
+
+    participants = (
+        session.execute(
+            select(Participant).where(Participant.event_id == event.id).order_by(Participant.full_name.asc())
+        )
+        .scalars()
+        .all()
+    )
+
+    matched_participants = [
+        participant
+        for participant in participants
+        if (
+            normalized_bib_token
+            and normalize_match_token(participant.bib_number) == normalized_bib_token
+        )
+        or (
+            normalized_search_term
+            and normalized_search_term in " ".join(participant.full_name.lower().split())
+        )
+    ]
+    matched_participant_ids = [participant.id for participant in matched_participants]
+    photo_items_by_id: dict[uuid.UUID, UserSearchPhotoItem] = {}
+
+    if matched_participant_ids:
+        matched_photos = (
+            session.execute(
+                select(Photo)
+                .join(PhotoParticipantMatch, PhotoParticipantMatch.photo_id == Photo.id)
+                .where(
+                    Photo.event_id == event.id,
+                    PhotoParticipantMatch.participant_id.in_(matched_participant_ids),
+                )
+                .options(
+                    selectinload(Photo.matches).selectinload(PhotoParticipantMatch.participant),
+                    selectinload(Photo.detections),
+                )
+                .distinct()
+                .order_by(Photo.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+
+        for photo in matched_photos:
+            photo_items_by_id[photo.id] = UserSearchPhotoItem(
+                photo=photo,
+                photo_url=safe_photo_access_url(photo.original_object_key),
+                matched_participants=[
+                    match.participant
+                    for match in photo.matches
+                    if match.participant_id in matched_participant_ids and match.participant is not None
+                ],
+                direct_match_values=[],
+            )
+
+    if normalized_bib_token:
+        direct_match_photos = (
+            session.execute(
+                select(Photo)
+                .join(PhotoTextDetection, PhotoTextDetection.photo_id == Photo.id)
+                .where(
+                    Photo.event_id == event.id,
+                    PhotoTextDetection.normalized_text.contains(normalized_bib_token),
+                )
+                .options(
+                    selectinload(Photo.matches).selectinload(PhotoParticipantMatch.participant),
+                    selectinload(Photo.detections),
+                )
+                .distinct()
+                .order_by(Photo.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+
+        for photo in direct_match_photos:
+            direct_match_values = [
+                detection.detected_text
+                for detection in photo.detections
+                if normalized_bib_token in normalize_match_token(detection.detected_text)
+            ]
+            existing_item = photo_items_by_id.get(photo.id)
+            if existing_item is not None:
+                existing_item.direct_match_values = direct_match_values
+                continue
+            photo_items_by_id[photo.id] = UserSearchPhotoItem(
+                photo=photo,
+                photo_url=safe_photo_access_url(photo.original_object_key),
+                matched_participants=[],
+                direct_match_values=direct_match_values,
+            )
+
+    items = sorted(
+        photo_items_by_id.values(),
+        key=lambda item: item.photo.created_at,
+        reverse=True,
+    )
+    return items, matched_participants
 
 
 def get_event_photo(session: Session, *, event_id: uuid.UUID, photo_id: str) -> Photo | None:
@@ -281,6 +431,17 @@ def generate_photo_access_url(object_key: str) -> str | None:
     )
 
 
+def download_photo_bytes(object_key: str) -> bytes:
+    if not is_r2_configured():
+        raise RuntimeError("R2 storage is not configured. Downloads are unavailable.")
+
+    response = get_r2_client().get_object(
+        Bucket=settings.r2_bucket_name,
+        Key=object_key,
+    )
+    return response["Body"].read()
+
+
 def delete_photo(session: Session, *, photo: Photo) -> None:
     delete_object_if_possible(photo.original_object_key)
     if photo.thumbnail_object_key:
@@ -339,6 +500,31 @@ def process_photo_pipeline(session: Session, *, photo: Photo, job: PhotoJob, ima
     job.finished_at = utc_now()
     photo.status = "ready"
     session.commit()
+
+
+def rebuild_event_photo_matches(session: Session, *, event: Event) -> int:
+    session.query(PhotoParticipantMatch).filter(PhotoParticipantMatch.event_id == event.id).delete(synchronize_session=False)
+    session.commit()
+
+    photos = (
+        session.execute(
+            select(Photo)
+            .where(Photo.event_id == event.id)
+            .options(selectinload(Photo.detections))
+            .order_by(Photo.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+
+    rebuilt_count = 0
+    for photo in photos:
+        if not photo.detections:
+            continue
+        create_participant_matches(session, photo=photo, detections=photo.detections)
+        rebuilt_count += 1
+
+    return rebuilt_count
 
 
 def create_participant_matches(

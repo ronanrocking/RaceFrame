@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import zipfile
 from datetime import date
 from pathlib import Path
 from urllib.parse import urlencode
@@ -37,6 +39,7 @@ from .db import Base, SessionLocal, engine, get_db
 from .models import Participant
 from .photographer import (
     count_event_participants,
+    download_photo_bytes,
     delete_all_event_photos,
     delete_photo,
     get_event_photo,
@@ -44,7 +47,10 @@ from .photographer import (
     ingest_photo_upload,
     list_event_photo_items,
     list_published_events,
-    list_user_photo_items,
+    list_user_events,
+    rebuild_event_photo_matches,
+    safe_photo_access_url,
+    search_event_photo_items,
 )
 
 
@@ -241,15 +247,125 @@ def photographer_event_list_page(request: Request, db: Session = Depends(get_db)
 
 
 @app.get("/user", response_class=HTMLResponse)
-def user_gallery_page(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+def user_event_list_page(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     context = {
         "request": request,
-        "title": "RaceFrame User Gallery",
-        "photo_items": list_user_photo_items(db),
+        "title": "RaceFrame User Search",
+        "events": list_user_events(db),
         "nav_home_url": "/user",
-        "nav_home_label": "User Gallery",
+        "nav_home_label": "Find Photos",
     }
-    return templates.TemplateResponse("user_gallery.html", context)
+    return templates.TemplateResponse("user_event_list.html", context)
+
+
+@app.get("/user/events/{event_id}", response_class=HTMLResponse)
+def user_event_search_page(
+    request: Request,
+    event_id: str,
+    q: str = "",
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    event = get_published_event(db, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Published event not found.")
+
+    search_term = q.strip()
+    results = []
+    matched_participants = []
+    if search_term:
+        results, matched_participants = search_event_photo_items(db, event=event, search_term=search_term)
+
+    context = {
+        "request": request,
+        "title": f"Search Photos - {event.name}",
+        "event": event,
+        "search_term": search_term,
+        "results": results,
+        "matched_participants": matched_participants,
+        "download_all_url": f"/user/events/{event.id}/download-all?{urlencode({'q': search_term})}" if search_term else None,
+        "nav_home_url": "/user",
+        "nav_home_label": "Find Photos",
+    }
+    return templates.TemplateResponse("user_event_search.html", context)
+
+
+@app.get("/user/events/{event_id}/photos/{photo_id}/download")
+def user_download_photo(event_id: str, photo_id: str, db: Session = Depends(get_db)) -> Response:
+    event = get_published_event(db, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Published event not found.")
+
+    photo = get_event_photo(db, event_id=event.id, photo_id=photo_id)
+    if photo is None:
+        raise HTTPException(status_code=404, detail="Photo not found.")
+
+    try:
+        photo_bytes = download_photo_bytes(photo.original_object_key)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"Photo download unavailable: {exc}") from exc
+
+    return Response(
+        content=photo_bytes,
+        media_type=photo.content_type or "application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{photo.file_name}"',
+        },
+    )
+
+
+@app.get("/user/events/{event_id}/download-all")
+def user_download_all_photos(
+    event_id: str,
+    q: str = "",
+    db: Session = Depends(get_db),
+) -> Response:
+    event = get_published_event(db, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Published event not found.")
+
+    search_term = q.strip()
+    if not search_term:
+        raise HTTPException(status_code=400, detail="Enter a bib number or participant name before downloading.")
+
+    results, _matched_participants = search_event_photo_items(db, event=event, search_term=search_term)
+    if not results:
+        raise HTTPException(status_code=404, detail="No matching photos found.")
+
+    zip_buffer = io.BytesIO()
+    used_names: set[str] = set()
+    added_count = 0
+    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for item in results:
+            try:
+                photo_bytes = download_photo_bytes(item.photo.original_object_key)
+            except Exception:  # noqa: BLE001
+                continue
+
+            file_name = item.photo.file_name or f"photo-{item.photo.id}"
+            stem = Path(file_name).stem or "photo"
+            suffix = Path(file_name).suffix or ".jpg"
+            candidate = file_name
+            suffix_index = 2
+            while candidate in used_names:
+                candidate = f"{stem}-{suffix_index}{suffix}"
+                suffix_index += 1
+            used_names.add(candidate)
+
+            archive.writestr(candidate, photo_bytes)
+            added_count += 1
+
+    if added_count == 0:
+        raise HTTPException(status_code=503, detail="Matching photos were found, but none could be downloaded.")
+
+    zip_buffer.seek(0)
+    archive_name = f"{event.slug}-search-results.zip"
+    return Response(
+        content=zip_buffer.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{archive_name}"',
+        },
+    )
 
 
 @app.get("/upload/events/{event_id}", response_class=HTMLResponse)
@@ -274,25 +390,40 @@ def photographer_event_upload_page(request: Request, event_id: str, db: Session 
 
 @app.post("/upload/events/{event_id}")
 async def photographer_upload_action(
+    request: Request,
     event_id: str,
     photo_files: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
-) -> RedirectResponse:
+) -> Response:
     event = get_published_event(db, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Published event not found.")
 
+    wants_json = (
+        request.headers.get("x-requested-with") == "XMLHttpRequest"
+        or "application/json" in request.headers.get("accept", "")
+    )
+
     submitted_files = [photo_file for photo_file in photo_files if photo_file.filename and photo_file.filename.strip()]
     if not submitted_files:
-        return redirect_with_message(
-            f"/upload/events/{event.id}",
-            message="Choose one or more image files before uploading.",
-            level="error",
-        )
+        message = "Choose one or more image files before uploading."
+        if wants_json:
+            return JSONResponse(
+                {
+                    "message": message,
+                    "processed_count": 0,
+                    "ready_count": 0,
+                    "failed_count": 0,
+                    "results": [],
+                },
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        return redirect_with_message(f"/upload/events/{event.id}", message=message, level="error")
 
     ready_count = 0
     failed_count = 0
     failure_notes: list[str] = []
+    upload_results: list[dict[str, object | None]] = []
 
     for photo_file in submitted_files:
         content = await photo_file.read()
@@ -303,6 +434,19 @@ async def photographer_upload_action(
             content_type=photo_file.content_type or "",
             content=content,
         )
+        latest_job = result.photo.jobs[0] if result.photo and result.photo.jobs else None
+        upload_results.append(
+            {
+                "file_name": result.file_name,
+                "success": result.success,
+                "message": result.message,
+                "photo_id": str(result.photo.id) if result.photo else None,
+                "photo_url": safe_photo_access_url(result.photo.original_object_key) if result.photo else None,
+                "photo_status": result.photo.status if result.photo else None,
+                "job_status": latest_job.status if latest_job else None,
+                "error_message": latest_job.error_message if latest_job else None,
+            }
+        )
         if result.success:
             ready_count += 1
         else:
@@ -312,6 +456,18 @@ async def photographer_upload_action(
     message = f"Processed {len(submitted_files)} photo(s). Ready {ready_count}, failed {failed_count}."
     if failure_notes:
         message = f"{message} {' | '.join(failure_notes[:3])}"
+
+    if wants_json:
+        return JSONResponse(
+            {
+                "message": message,
+                "processed_count": len(submitted_files),
+                "ready_count": ready_count,
+                "failed_count": failed_count,
+                "results": upload_results,
+            },
+            status_code=status.HTTP_200_OK,
+        )
 
     return redirect_with_message(
         f"/upload/events/{event.id}",
@@ -455,6 +611,7 @@ async def delete_event_action(event_id: str, db: Session = Depends(get_db)) -> R
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found.")
 
+    delete_all_event_photos(db, event=event)
     delete_event(db, event=event)
     return redirect_with_message("/admin", message="Event deleted.")
 
@@ -481,6 +638,7 @@ async def upload_participants_action(
     try:
         rows = parse_participant_file(file_name, content)
         result = upsert_participants(db, event=event, rows=rows)
+        rebuild_event_photo_matches(db, event=event)
     except ValueError as exc:
         return redirect_with_message(
             f"/admin/events/{event.id}/edit",
@@ -511,6 +669,7 @@ async def add_participant_action(
     except ValueError as exc:
         return redirect_with_message(f"/admin/events/{event.id}/edit", message=str(exc), level="error")
 
+    rebuild_event_photo_matches(db, event=event)
     return redirect_with_message(f"/admin/events/{event.id}/edit", message="Participant added.")
 
 
@@ -532,6 +691,7 @@ async def update_participant_action(
     except ValueError as exc:
         return redirect_with_message(f"/admin/events/{event.id}/edit", message=str(exc), level="error")
 
+    rebuild_event_photo_matches(db, event=event)
     return redirect_with_message(f"/admin/events/{event.id}/edit", message="Participant updated.")
 
 
@@ -547,6 +707,7 @@ async def delete_participant_action(
         raise HTTPException(status_code=404, detail="Participant not found.")
 
     delete_participant(db, participant=participant)
+    rebuild_event_photo_matches(db, event=event)
     return redirect_with_message(f"/admin/events/{event.id}/edit", message="Participant deleted.")
 
 
@@ -557,6 +718,7 @@ async def delete_all_participants_action(event_id: str, db: Session = Depends(ge
         raise HTTPException(status_code=404, detail="Event not found.")
 
     deleted_count = delete_all_participants(db, event=event)
+    rebuild_event_photo_matches(db, event=event)
     return redirect_with_message(
         f"/admin/events/{event.id}/edit",
         message=f"Deleted {deleted_count} participant record{'s' if deleted_count != 1 else ''}.",

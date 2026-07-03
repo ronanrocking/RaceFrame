@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block body_class %}admin-theme user-page user-search-page{% endblock %}
+{% block shell_class %}admin-shell{% endblock %}
+
+{% block site_nav %}
+  <a class="site-nav-link {% if request.url.path.startswith('/upload') %}is-active{% endif %}" href="/upload">Upload</a>
+  <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" href="/user">User</a>
+{% endblock %}
+
+{% block site_marquee %}{% endblock %}
+{% block header_title %}Search Race Photos{% endblock %}
+{% block header_subtitle %}
+  <p class="admin-header-subtitle">{{ event.name }}</p>
+{% endblock %}
+{% block header_actions %}
+  <a class="admin-button admin-button-secondary" href="/user">Back to Events</a>
+{% endblock %}
+
+{% block content %}
+  <section class="admin-section user-search-section">
+    <div class="admin-section-header">
+      <div>
+        <p class="admin-section-label">Event Search</p>
+        <h2>{{ event.name }}</h2>
+      </div>
+    </div>
+
+    <div class="upload-event-meta user-search-meta">
+      <span>Slug: {{ event.slug }}</span>
+      <span>Date: {{ event.event_date if event.event_date else "Not set" }}</span>
+      <span>Location: {{ event.location if event.location else "Not set" }}</span>
+    </div>
+
+    <form method="get" action="/user/events/{{ event.id }}" class="admin-form user-search-form">
+      <label class="admin-field">
+        <span class="admin-field-label">Bib Number Or Participant Name</span>
+        <input type="text" name="q" value="{{ search_term }}" placeholder="Eg. 1042 or Asha Kumar" required />
+      </label>
+      <div class="admin-form-actions user-search-actions">
+        <button class="admin-button admin-button-primary" type="submit">Search Photos</button>
+        {% if results and download_all_url %}
+          <a class="admin-button admin-button-secondary" href="{{ download_all_url }}">Download All</a>
+        {% endif %}
+      </div>
+    </form>
+  </section>
+
+  {% if search_term %}
+    <section class="admin-section user-results-section">
+      <div class="admin-section-header">
+        <div>
+          <p class="admin-section-label">Search Results</p>
+          <h2>{{ results|length }} Photo{{ "" if results|length == 1 else "s" }}</h2>
+        </div>
+        {% if matched_participants %}
+          <span class="admin-panel-meta">
+            {{ matched_participants|length }} participant{{ "" if matched_participants|length == 1 else "s" }} matched
+          </span>
+        {% endif %}
+      </div>
+
+      {% if results %}
+        <div class="user-results-grid">
+          {% for item in results %}
+            <article class="user-photo-card">
+              <a class="user-photo-preview" href="{{ item.photo_url if item.photo_url else '/user/events/' ~ event.id ~ '/photos/' ~ item.photo.id ~ '/download' }}" target="_blank" rel="noreferrer">
+                {% if item.photo_url %}
+                  <img src="{{ item.photo_url }}" alt="{{ item.photo.file_name }}" class="gallery-image user-result-image" />
+                {% else %}
+                  <span class="user-photo-fallback">Preview unavailable</span>
+                {% endif %}
+              </a>
+              <div class="user-photo-card-copy">
+                <h3>{{ item.photo.file_name }}</h3>
+                {% if item.matched_participants %}
+                  {% for participant in item.matched_participants %}
+                    <p class="user-photo-match">{{ participant.bib_number }} - {{ participant.full_name }}</p>
+                  {% endfor %}
+                {% elif item.direct_match_values %}
+                  <p class="user-photo-match">Direct OCR match: {{ item.direct_match_values[0] }}</p>
+                {% endif %}
+              </div>
+              <div class="user-photo-card-actions">
+                <a class="admin-open-link admin-open-link-subtle" href="/user/events/{{ event.id }}/photos/{{ item.photo.id }}/download">Download</a>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="admin-empty-state admin-empty-state-tight">
+          <h4>No matching photos found</h4>
+          <p>Try the exact bib number or a broader participant-name search for this event.</p>
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+{% endblock %}

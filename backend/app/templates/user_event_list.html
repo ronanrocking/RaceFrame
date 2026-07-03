@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block body_class %}admin-theme user-page user-events-page{% endblock %}
+{% block shell_class %}admin-shell{% endblock %}
+
+{% block site_nav %}
+  <a class="site-nav-link {% if request.url.path.startswith('/upload') %}is-active{% endif %}" href="/upload">Upload</a>
+  <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" href="/user">User</a>
+{% endblock %}
+
+{% block site_marquee %}{% endblock %}
+{% block page_header_class %}user-page-header{% endblock %}
+{% block header_title %}RaceFrame{% endblock %}
+{% block header_subtitle %}
+  <p class="admin-header-subtitle user-page-subtitle">Choose your event, then search by bib number or participant name to pull every matched race photo.</p>
+{% endblock %}
+{% block header_actions %}{% endblock %}
+
+{% block content %}
+  <section class="admin-section user-events-section">
+    <div class="admin-section-header">
+      <div>
+        <p class="admin-section-label">Published Events</p>
+        <h2>Pick Your Race</h2>
+      </div>
+      <span class="admin-panel-meta">{{ events|length }} event{{ "" if events|length == 1 else "s" }}</span>
+    </div>
+
+    {% if events %}
+      <div class="user-event-grid">
+        {% for item in events %}
+          <article class="user-event-card">
+            <div class="user-event-card-copy">
+              <span class="admin-section-label">Event</span>
+              <h3>{{ item.event.name }}</h3>
+              <p class="user-event-slug">{{ item.event.slug }}</p>
+            </div>
+            <div class="user-event-meta">
+              <span>Date: {{ item.event.event_date if item.event.event_date else "Not set" }}</span>
+              <span>Location: {{ item.event.location if item.event.location else "Not set" }}</span>
+              <span>Participants: {{ item.participant_count }}</span>
+              <span>Photos: {{ item.photo_count }}</span>
+            </div>
+            <a class="admin-button admin-button-primary" href="/user/events/{{ item.event.id }}">Search Photos</a>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="admin-empty-state admin-empty-state-tight">
+        <h4>No published events yet</h4>
+        <p>Once an event is published and photos are uploaded, it will appear here for public search.</p>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}
