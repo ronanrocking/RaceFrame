@@ -1,0 +1,20 @@
+image: 2.png
+labels_found: 17
+
+1. detected_text=0:44 | normalized_text=0:44 | confidence=0.9694
+2. detected_text=BOPOTA | normalized_text=BOPOTA | confidence=0.9790
+3. detected_text=BOPOTA | normalized_text=BOPOTA | confidence=0.9823
+4. detected_text=BOPOTA | normalized_text=BOPOTA | confidence=0.9811
+5. detected_text=2106 | normalized_text=2106 | confidence=0.9907
+6. detected_text=2384 | normalized_text=2384 | confidence=0.9933
+7. detected_text=Московский | normalized_text=МОСКОВСКИЙ | confidence=0.8787
+8. detected_text=у | normalized_text=У | confidence=0.6023
+9. detected_text=DIE | normalized_text=DIE | confidence=0.7162
+10. detected_text=DIE | normalized_text=DIE | confidence=0.5508
+11. detected_text=2129 | normalized_text=2129 | confidence=0.9910
+12. detected_text=POWMEU | normalized_text=POWMEU | confidence=0.7425
+13. detected_text=2333 | normalized_text=2333 | confidence=0.9888
+14. detected_text=2340 | normalized_text=2340 | confidence=0.9762
+15. detected_text=2131 | normalized_text=2131 | confidence=0.9781
+16. detected_text=2297 | normalized_text=2297 | confidence=0.9818
+17. detected_text=2492 | normalized_text=2492 | confidence=0.9942

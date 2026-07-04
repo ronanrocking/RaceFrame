@@ -1,0 +1,33 @@
+image: 13.png
+labels_found: 30
+
+1. detected_text=DER | normalized_text=DER | confidence=0.9223
+2. detected_text=6 | normalized_text=6 | confidence=0.5802
+3. detected_text=BILSTEIN | normalized_text=BILSTEIN | confidence=0.9689
+4. detected_text=BILSTEIN | normalized_text=BILSTEIN | confidence=0.8501
+5. detected_text=En | normalized_text=EN | confidence=0.4539
+6. detected_text=BILSTEIN | normalized_text=BILSTEIN | confidence=0.9328
+7. detected_text=CROSUL | normalized_text=CROSUL | confidence=0.9898
+8. detected_text=V | normalized_text=V | confidence=0.9768
+9. detected_text=VISMA | normalized_text=VISMA | confidence=0.9846
+10. detected_text=CROSUL | normalized_text=CROSUL | confidence=0.9884
+11. detected_text=VISMA | normalized_text=VISMA | confidence=0.9380
+12. detected_text=OSUL | normalized_text=OSUL | confidence=0.8001
+13. detected_text=270 | normalized_text=270 | confidence=0.7798
+14. detected_text=3268 | normalized_text=3268 | confidence=0.9905
+15. detected_text=ISMA | normalized_text=ISMA | confidence=0.6623
+16. detected_text=2578 | normalized_text=2578 | confidence=0.9929
+17. detected_text=CROSUL | normalized_text=CROSUL | confidence=0.9585
+18. detected_text=3261 | normalized_text=3261 | confidence=0.9876
+19. detected_text=Wat | normalized_text=WAT | confidence=0.4439
+20. detected_text=Denga | normalized_text=DENGA | confidence=0.7436
+21. detected_text=SNOW | normalized_text=SNOW | confidence=0.9302
+22. detected_text=FEST | normalized_text=FEST | confidence=0.9737
+23. detected_text=501 | normalized_text=501 | confidence=0.7934
+24. detected_text=Marius | normalized_text=MARIUS | confidence=0.6829
+25. detected_text=Julien | normalized_text=JULIEN | confidence=0.5954
+26. detected_text=Noronh | normalized_text=NORONH | confidence=0.3459
+27. detected_text=RAW | normalized_text=RAW | confidence=0.3498
+28. detected_text=DROP | normalized_text=DROP | confidence=0.7899
+29. detected_text=fonly | normalized_text=FONLY | confidence=0.5567
+30. detected_text=Dvative | normalized_text=DVATIVE | confidence=0.5558

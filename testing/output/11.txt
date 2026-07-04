@@ -1,0 +1,14 @@
+image: 11.png
+labels_found: 11
+
+1. detected_text=3419 | normalized_text=3419 | confidence=0.9881
+2. detected_text=NORDER | normalized_text=NORDER | confidence=0.8129
+3. detected_text=MARATONS | normalized_text=MARATONS | confidence=0.8360
+4. detected_text=AGAS | normalized_text=AGAS | confidence=0.6947
+5. detected_text=3411 | normalized_text=3411 | confidence=0.9928
+6. detected_text=3885 | normalized_text=3885 | confidence=0.8767
+7. detected_text=adidas | normalized_text=ADIDAS | confidence=0.9442
+8. detected_text=3706 | normalized_text=3706 | confidence=0.9858
+9. detected_text=adidas | normalized_text=ADIDAS | confidence=0.9899
+10. detected_text=www | normalized_text=WWW | confidence=0.6055
+11. detected_text=3352 | normalized_text=3352 | confidence=0.9929

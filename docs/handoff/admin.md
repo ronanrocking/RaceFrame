@@ -11,9 +11,9 @@ The admin panel is currently implemented as a plain server-rendered FastAPI flow
 It is intentionally simple:
 
 - no login/auth yet
-- plain HTML pages
-- minimal layout only
+- server-rendered HTML pages
 - focused on working event and participant management
+- now also tied into the photo-matching workflow for roster updates
 
 Public admin entry point:
 
@@ -88,7 +88,8 @@ Slug behavior:
 
 Event delete behavior:
 
-- deleting an event deletes its participant rows through the DB relationship cascade
+- deleting an event deletes participant rows through the DB relationship cascade
+- deleting an event also deletes event photo records and attempts to remove the backing R2 objects first
 
 ## Participant behavior
 
@@ -157,6 +158,7 @@ Import semantics:
 - rows missing bib or name are skipped
 - duplicate bibs inside one upload are deduplicated
 - missing rows are not deleted automatically
+- after import, photo-to-participant matching is rebuilt for that event
 
 If a full replace is needed:
 
@@ -171,6 +173,12 @@ On the event edit page, admins can:
 - edit bib/name directly inside the participant table
 - delete an individual participant
 - delete all participants for the event
+- manage uploaded photo records for the event
+
+Participant change side effect:
+
+- add/edit/delete/import/delete-all participant actions now trigger a full photo-match rebuild for that event
+- this keeps `photo_participant_matches` aligned with the latest roster
 
 The participant table currently shows:
 
@@ -220,4 +228,4 @@ Minimal styling:
 - global admin lock is crude
 - no migrations yet; schema is still created on startup
 - participant model is intentionally minimal for now
-- no photo/OCR/search admin features yet
+- matching is still bib/OCR driven and intentionally simple

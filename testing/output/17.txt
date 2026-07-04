@@ -1,0 +1,20 @@
+image: 17.png
+labels_found: 17
+
+1. detected_text=Enganxat | normalized_text=ENGANXAT | confidence=0.9354
+2. detected_text=a | normalized_text=A | confidence=0.9764
+3. detected_text=CORREX | normalized_text=CORREX | confidence=0.8720
+4. detected_text=Engerwa't | normalized_text=ENGERWA'T | confidence=0.5799
+5. detected_text=a | normalized_text=A | confidence=0.9892
+6. detected_text=CORRER | normalized_text=CORRER | confidence=0.7677
+7. detected_text=Enganxat | normalized_text=ENGANXAT | confidence=0.9404
+8. detected_text=a | normalized_text=A | confidence=0.9670
+9. detected_text=XRS | normalized_text=XRS | confidence=0.9271
+10. detected_text=CORRER | normalized_text=CORRER | confidence=0.9829
+11. detected_text=200 | normalized_text=200 | confidence=0.9717
+12. detected_text=SOM | normalized_text=SOM | confidence=0.9147
+13. detected_text=BALEARIA | normalized_text=BALEARIA | confidence=0.9376
+14. detected_text=ESPORT | normalized_text=ESPORT | confidence=0.9700
+15. detected_text=2224 | normalized_text=2224 | confidence=0.9907
+16. detected_text=denia.com | normalized_text=DENIA.COM | confidence=0.9620
+17. detected_text=copyright | normalized_text=COPYRIGHT | confidence=0.9892

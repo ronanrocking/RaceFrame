@@ -1,0 +1,38 @@
+image: 24.png
+labels_found: 35
+
+1. detected_text=DA | normalized_text=DA | confidence=0.6161
+2. detected_text=CTAPT | normalized_text=CTAPT | confidence=0.8831
+3. detected_text=0 | normalized_text=0 | confidence=0.3493
+4. detected_text=SBERBANK | normalized_text=SBERBANK | confidence=0.9804
+5. detected_text=CRAFT | normalized_text=CRAFT | confidence=0.9408
+6. detected_text=MARAMOU | normalized_text=MARAMOU | confidence=0.7503
+7. detected_text=RUNNING | normalized_text=RUNNING | confidence=0.9893
+8. detected_text=42,2 | normalized_text=42,2 | confidence=0.9934
+9. detected_text=KM | normalized_text=KM | confidence=0.9904
+10. detected_text=TEAM | normalized_text=TEAM | confidence=0.9503
+11. detected_text=095 | normalized_text=095 | confidence=0.8271
+12. detected_text=АДИСЛАВ | normalized_text=АДИСЛАВ | confidence=0.9563
+13. detected_text=42,2 | normalized_text=42,2 | confidence=0.9832
+14. detected_text=KM | normalized_text=KM | confidence=0.9898
+15. detected_text=5638 | normalized_text=5638 | confidence=0.9906
+16. detected_text=KCAHAP | normalized_text=KCAHAP | confidence=0.7713
+17. detected_text=илья | normalized_text=ИЛЬЯ | confidence=0.8986
+18. detected_text=42,2 | normalized_text=42,2 | confidence=0.9757
+19. detected_text=KM | normalized_text=KM | confidence=0.8995
+20. detected_text=B | normalized_text=B | confidence=0.9476
+21. detected_text=Bass | normalized_text=BASS | confidence=0.6066
+22. detected_text=W | normalized_text=W | confidence=0.5185
+23. detected_text=. | normalized_text=. | confidence=0.4892
+24. detected_text=E | normalized_text=E | confidence=0.9036
+25. detected_text=42,2 | normalized_text=42,2 | confidence=0.9837
+26. detected_text=KM | normalized_text=KM | confidence=0.9874
+27. detected_text=HOSCOW | normalized_text=HOSCOW | confidence=0.5895
+28. detected_text=MARATH | normalized_text=MARATH | confidence=0.9754
+29. detected_text=11 | normalized_text=11 | confidence=0.9896
+30. detected_text=12839 | normalized_text=12839 | confidence=0.9902
+31. detected_text=11499 | normalized_text=11499 | confidence=0.9929
+32. detected_text=085 | normalized_text=085 | confidence=0.9875
+33. detected_text=ARENCAHOP | normalized_text=ARENCAHOP | confidence=0.6928
+34. detected_text=B | normalized_text=B | confidence=0.9162
+35. detected_text=BM | normalized_text=BM | confidence=0.5736

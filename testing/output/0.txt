@@ -1,0 +1,9 @@
+image: 0.png
+labels_found: 6
+
+1. detected_text=LUBELSKI | normalized_text=LUBELSKI | confidence=0.9862
+2. detected_text=BIEGACZ | normalized_text=BIEGACZ | confidence=0.9851
+3. detected_text=100 | normalized_text=100 | confidence=0.9917
+4. detected_text=349 | normalized_text=349 | confidence=0.9887
+5. detected_text=50 | normalized_text=50 | confidence=0.9897
+6. detected_text=389 | normalized_text=389 | confidence=0.9905

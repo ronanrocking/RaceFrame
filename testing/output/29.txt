@@ -1,0 +1,31 @@
+image: 29.png
+labels_found: 28
+
+1. detected_text=A | normalized_text=A | confidence=0.9647
+2. detected_text=At | normalized_text=AT | confidence=0.8981
+3. detected_text=Trekking | normalized_text=TREKKING | confidence=0.9222
+4. detected_text=Ev | normalized_text=EV | confidence=0.9465
+5. detected_text=Киев | normalized_text=КИЕВ | confidence=0.9962
+6. detected_text=MACCAKH | normalized_text=MACCAKH | confidence=0.7921
+7. detected_text=Украина | normalized_text=УКРАИНА | confidence=0.9964
+8. detected_text=. | normalized_text=. | confidence=0.9659
+9. detected_text=BNUUEKE | normalized_text=BNUUEKE | confidence=0.4716
+10. detected_text=SAP | normalized_text=SAP | confidence=0.4682
+11. detected_text=MU | normalized_text=MU | confidence=0.5475
+12. detected_text=ОЛІМПІЙСЬКИЙ | normalized_text=ОЛІМПІЙСЬКИЙ | confidence=0.8719
+13. detected_text=НСК | normalized_text=НСК | confidence=0.5729
+14. detected_text=SOT | normalized_text=SOT | confidence=0.6370
+15. detected_text=HTIW | normalized_text=HTIW | confidence=0.9793
+16. detected_text=VOL | normalized_text=VOL | confidence=0.7583
+17. detected_text=saucony | normalized_text=SAUCONY | confidence=0.7217
+18. detected_text=12222 | normalized_text=12222 | confidence=0.9589
+19. detected_text=1216 | normalized_text=1216 | confidence=0.9806
+20. detected_text=101 | normalized_text=101 | confidence=0.9870
+21. detected_text=276 | normalized_text=276 | confidence=0.9543
+22. detected_text=12400 | normalized_text=12400 | confidence=0.9897
+23. detected_text=12065 | normalized_text=12065 | confidence=0.9915
+24. detected_text=12168 | normalized_text=12168 | confidence=0.9833
+25. detected_text=12 | normalized_text=12 | confidence=0.9901
+26. detected_text=204 | normalized_text=204 | confidence=0.8277
+27. detected_text=12329 | normalized_text=12329 | confidence=0.9257
+28. detected_text=2214 | normalized_text=2214 | confidence=0.9544

@@ -23,7 +23,7 @@ The MVP is intentionally narrow:
 - automatic OCR/text detection from uploaded photos
 - participant-photo matching based on detected bib text
 
-Current implemented slice as of July 3, 2026:
+Current implemented slice as of July 4, 2026:
 
 - FastAPI backend deployed on OCI VPS
 - Postgres deployed on OCI VPS
@@ -31,7 +31,16 @@ Current implemented slice as of July 3, 2026:
 - event creation/edit/delete is implemented
 - participant browser CRUD is implemented
 - participant CSV/XLSX import is implemented
-- public search/photo pipeline is not implemented yet
+- photographer upload flow is implemented at `/upload`
+- uploaded photos are stored in R2 and processed through OCR
+- OCR detections and participant-photo matches are stored in Postgres
+- public user search flow is implemented at `/user`
+- user flow currently supports:
+  - event picker
+  - search by bib number or participant name
+  - per-photo download
+  - download-all ZIP for search results
+- direct OCR bib searching is allowed for testing even if a participant match row does not exist yet
 
 Not in scope yet:
 
@@ -58,9 +67,9 @@ No extra database tables should be assumed unless explicitly added later.
 
 Current live implementation note:
 
-- only `events` and `participants` are implemented for app logic right now
-- an `admin_session_locks` table exists as a temporary infrastructure table for admin-session control
-- the photo-related tables are still planned, not built
+- `events`, `participants`, `photos`, `photo_jobs`, `photo_text_detection`, and `photo_participant_matches` are now in active use
+- `admin_session_locks` remains as a temporary infrastructure table for admin-session control
+- participant changes now trigger a rebuild of photo matches for that event so search results stay in sync after roster edits
 
 ## Database Intent
 
@@ -200,6 +209,7 @@ Current deployed shape:
 - OCI VPS runs Postgres in Docker
 - Cloudflare Tunnel exposes the backend publicly
 - current public admin hostname is `raceframe.ronanrocking.com`
+- same hostname currently serves the `/admin`, `/upload`, and `/user` flows
 
 ## Implementation Order Agreed So Far
 
@@ -269,3 +279,4 @@ Server setup reference exists in:
 - The current admin panel is intentionally plain HTML for workflow validation, not final design.
 - Slugs are auto-generated from event names and should not be user-editable in the current flow.
 - Participant uploads currently upsert by `(event_id, bib_number)` rather than replacing the whole event roster.
+- User search still depends mainly on OCR text quality and bib detection; this is still MVP matching logic rather than a hardened search product.

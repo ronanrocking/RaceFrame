@@ -1,0 +1,25 @@
+image: 7.png
+labels_found: 22
+
+1. detected_text=MARATHON | normalized_text=MARATHON | confidence=0.9862
+2. detected_text=LEIPZIG | normalized_text=LEIPZIG | confidence=0.9920
+3. detected_text=LEIPZIG | normalized_text=LEIPZIG | confidence=0.9921
+4. detected_text=ZIEL | normalized_text=ZIEL | confidence=0.9805
+5. detected_text=MARATHON | normalized_text=MARATHON | confidence=0.9958
+6. detected_text=MARATHON | normalized_text=MARATHON | confidence=0.8087
+7. detected_text=12:08:04 | normalized_text=12:08:04 | confidence=0.6046
+8. detected_text=cep | normalized_text=CEP | confidence=0.8708
+9. detected_text=ECE | normalized_text=ECE | confidence=0.5142
+10. detected_text=Leipziger | normalized_text=LEIPZIGER | confidence=0.5976
+11. detected_text=3:00 | normalized_text=3:00 | confidence=0.9154
+12. detected_text=oots | normalized_text=OOTS | confidence=0.7649
+13. detected_text=of | normalized_text=OF | confidence=0.9865
+14. detected_text=Ppassio | normalized_text=PPASSIO | confidence=0.8294
+15. detected_text=40637 | normalized_text=40637 | confidence=0.9931
+16. detected_text=40014 | normalized_text=40014 | confidence=0.9930
+17. detected_text=40258 | normalized_text=40258 | confidence=0.9812
+18. detected_text=Christian | normalized_text=CHRISTIAN | confidence=0.9819
+19. detected_text=40685 | normalized_text=40685 | confidence=0.9923
+20. detected_text=40011 | normalized_text=40011 | confidence=0.9191
+21. detected_text=Marathon | normalized_text=MARATHON | confidence=0.9105
+22. detected_text=40019 | normalized_text=40019 | confidence=0.9818

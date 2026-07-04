@@ -22,11 +22,21 @@ The FastAPI backend currently provides:
 - `GET /admin/events/new` -> create event page
 - `GET /admin/events/{event_id}/edit` -> edit event page
 - `POST /admin/events/{event_id}/participants/upload` -> CSV/XLSX participant import
+- `GET /upload` -> photographer event picker
+- `GET /upload/events/{event_id}` -> batch photo upload page
+- `GET /user` -> public event picker for photo search
+- `GET /user/events/{event_id}` -> public photo search page
+- `GET /user/events/{event_id}/download-all` -> ZIP download of matching photos
 
 Implemented database tables right now:
 
 - `events`
 - `participants`
+- `photos`
+- `photo_jobs`
+- `photo_text_detection`
+- `photo_participant_matches`
+- `admin_session_locks`
 
 Schema bootstrapping right now:
 
@@ -46,6 +56,15 @@ Current admin behavior:
 - delete individual participants from the browser
 - delete all participants for an event from the browser
 - also accepts common alternates like `bib`, `name`, `first_name`, `last_name`
+- participant changes trigger a photo-match rebuild for that event
+
+Current photo/user behavior:
+
+- photographers can upload batches of race images from `/upload`
+- uploads go to R2 and OCR runs during ingestion
+- OCR detections are stored and used to build participant-photo matches
+- public users can pick an event, search by bib/name, and download matched photos
+- public bib search also has a direct OCR fallback for testing even when a participant match row is missing
 
 Import behavior:
 

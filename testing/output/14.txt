@@ -1,0 +1,23 @@
+image: 14.png
+labels_found: 20
+
+1. detected_text=ВРЕМЯ | normalized_text=ВРЕМЯ | confidence=0.8909
+2. detected_text=Руд | normalized_text=РУД | confidence=0.4746
+3. detected_text=локо | normalized_text=ЛОКО | confidence=0.8674
+4. detected_text=8 | normalized_text=8 | confidence=0.4682
+5. detected_text=Российские | normalized_text=РОССИЙСКИЕ | confidence=0.9954
+6. detected_text=10 | normalized_text=10 | confidence=0.9593
+7. detected_text=KM | normalized_text=KM | confidence=0.9687
+8. detected_text=дороги | normalized_text=ДОРОГИ | confidence=0.9836
+9. detected_text=железные | normalized_text=ЖЕЛЕЗНЫЕ | confidence=0.9938
+10. detected_text=17512 | normalized_text=17512 | confidence=0.9927
+11. detected_text=KM | normalized_text=KM | confidence=0.8880
+12. detected_text=10 | normalized_text=10 | confidence=0.9875
+13. detected_text=KM | normalized_text=KM | confidence=0.9679
+14. detected_text=10 | normalized_text=10 | confidence=0.8456
+15. detected_text=25753 | normalized_text=25753 | confidence=0.9943
+16. detected_text=юлия | normalized_text=ЮЛИЯ | confidence=0.9322
+17. detected_text=30091 | normalized_text=30091 | confidence=0.9911
+18. detected_text=Casics | normalized_text=CASICS | confidence=0.7295
+19. detected_text=ПАДИМИР | normalized_text=ПАДИМИР | confidence=0.7874
+20. detected_text=Dasics | normalized_text=DASICS | confidence=0.7893
