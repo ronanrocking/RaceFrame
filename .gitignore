@@ -6,3 +6,4 @@ raceframeocr-*.json
 test-data/
 testing/output/
 testing/*.txt
+docs/handoff
