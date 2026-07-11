@@ -5,5 +5,7 @@ raceframeocr-*.json
 *.db
 test-data/
 testing/output/
+testing/bib_crop_output/
+testing/bib_crop_manual_output/
 testing/*.txt
 docs/handoff
