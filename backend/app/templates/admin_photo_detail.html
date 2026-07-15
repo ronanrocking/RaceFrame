@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+
+{% block body_class %}admin-theme admin-edit-page admin-photo-detail-page{% endblock %}
+{% block shell_class %}admin-shell{% endblock %}
+
+{% block site_nav %}
+  <a class="site-nav-link" href="/upload">Upload</a>
+  <a class="site-nav-link" href="/user">User</a>
+{% endblock %}
+
+{% block site_marquee %}{% endblock %}
+{% block header_title %}Photo Details{% endblock %}
+{% block header_subtitle %}
+  <p class="admin-header-subtitle">{{ event.name }} / {{ photo.file_name }}</p>
+{% endblock %}
+{% block header_actions %}
+  <a class="admin-button admin-button-secondary" href="/admin/events/{{ event.id }}/edit">Back to Event</a>
+  {% if photo_url %}
+    <a class="admin-button admin-button-secondary" href="{{ photo_url }}" target="_blank" rel="noreferrer">Raw Image</a>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+  <section class="admin-section admin-photo-hero-section">
+    <div class="admin-photo-detail-layout">
+      <div class="admin-photo-detail-image">
+        {% if photo_url %}
+          <img src="{{ photo_url }}" alt="{{ photo.file_name }}" />
+        {% else %}
+          <div class="admin-empty-state admin-empty-state-tight">
+            <h4>Preview unavailable</h4>
+            <p>The R2 object could not be signed right now.</p>
+          </div>
+        {% endif %}
+      </div>
+
+      <aside class="admin-photo-detail-summary">
+        <p class="admin-section-label">Summary</p>
+        <h2>{{ photo.file_name }}</h2>
+        <div class="admin-photo-metric-grid">
+          <div>
+            <span class="admin-field-label">Status</span>
+            <strong>{{ photo.status }}</strong>
+          </div>
+          <div>
+            <span class="admin-field-label">OCR Texts</span>
+            <strong>{{ photo.detections|length }}</strong>
+          </div>
+          <div>
+            <span class="admin-field-label">Faces</span>
+            <strong>{{ photo.face_detections|length }}</strong>
+          </div>
+          <div>
+            <span class="admin-field-label">Matches</span>
+            <strong>{{ photo.matches|length }}</strong>
+          </div>
+        </div>
+        <div class="upload-event-meta user-search-meta">
+          <span>Created: {{ photo.created_at.strftime("%Y-%m-%d %H:%M") }}</span>
+          <span>Size: {{ photo.file_size }} bytes</span>
+          <span>Type: {{ photo.content_type }}</span>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <section class="admin-section">
+    <div class="admin-section-header">
+      <div>
+        <p class="admin-section-label">Processing</p>
+        <h2>Jobs</h2>
+      </div>
+    </div>
+    {% if photo.jobs %}
+      <div class="admin-table-wrap">
+        <table class="admin-table admin-table-plain">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Attempts</th>
+              <th>Finished</th>
+              <th>Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for job in photo.jobs %}
+              <tr>
+                <td>{{ job.job_type }}</td>
+                <td>{{ job.status }}</td>
+                <td>{{ job.attempt_count }}</td>
+                <td>{{ job.finished_at.strftime("%Y-%m-%d %H:%M") if job.finished_at else "Pending" }}</td>
+                <td>{{ job.error_message if job.error_message else "-" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="admin-empty-state admin-empty-state-tight">
+        <h4>No jobs recorded</h4>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="admin-section">
+    <div class="admin-section-header">
+      <div>
+        <p class="admin-section-label">Evidence</p>
+        <h2>Detected Text</h2>
+      </div>
+      <span class="admin-panel-meta">{{ photo.detections|length }} item{{ "" if photo.detections|length == 1 else "s" }}</span>
+    </div>
+    {% if photo.detections %}
+      <div class="admin-evidence-grid">
+        {% for detection in photo.detections %}
+          <article class="admin-evidence-card">
+            <strong>{{ detection.detected_text }}</strong>
+            <span>Normalized: {{ detection.normalized_text }}</span>
+            <span>Confidence: {{ "%.2f"|format(detection.confidence) if detection.confidence is not none else "n/a" }}</span>
+            {% if detection.bounding_box_json %}
+              <span>Box: {{ detection.bounding_box_json.left }},{{ detection.bounding_box_json.top }} / {{ detection.bounding_box_json.width }}x{{ detection.bounding_box_json.height }}</span>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="admin-empty-state admin-empty-state-tight">
+        <h4>No text detected yet</h4>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="admin-section">
+    <div class="admin-section-header">
+      <div>
+        <p class="admin-section-label">Evidence</p>
+        <h2>Detected Faces</h2>
+      </div>
+      <span class="admin-panel-meta">{{ photo.face_detections|length }} face{{ "" if photo.face_detections|length == 1 else "s" }}</span>
+    </div>
+    {% if photo.face_detections %}
+      <div class="admin-evidence-grid">
+        {% for face in photo.face_detections %}
+          <article class="admin-evidence-card">
+            <strong>Face {{ face.face_index + 1 }}</strong>
+            <span>Detection: {{ "%.2f"|format(face.detection_score) if face.detection_score is not none else "n/a" }}</span>
+            <span>Quality: {{ "%.2f"|format(face.quality_score) if face.quality_score is not none else "n/a" }}</span>
+            {% if face.bounding_box_json %}
+              <span>Box: {{ face.bounding_box_json.left }},{{ face.bounding_box_json.top }} / {{ face.bounding_box_json.width }}x{{ face.bounding_box_json.height }}</span>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="admin-empty-state admin-empty-state-tight">
+        <h4>No faces detected yet</h4>
+        <p>If the face worker is still processing, refresh this page after a little while.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="admin-section">
+    <div class="admin-section-header">
+      <div>
+        <p class="admin-section-label">Decision</p>
+        <h2>Participant Matches</h2>
+      </div>
+    </div>
+    {% if photo.matches %}
+      <div class="admin-table-wrap">
+        <table class="admin-table admin-table-plain">
+          <thead>
+            <tr>
+              <th>Participant</th>
+              <th>Source</th>
+              <th>Value</th>
+              <th>Confidence</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for match in photo.matches %}
+              <tr>
+                <td>
+                  {% if match.participant %}
+                    <strong>{{ match.participant.bib_number }}</strong>
+                    <span class="admin-event-slug">{{ match.participant.full_name }}</span>
+                  {% else %}
+                    <span class="muted-text">Unknown participant</span>
+                  {% endif %}
+                </td>
+                <td>{{ match.match_source }}</td>
+                <td>{{ match.matched_value }}</td>
+                <td>{{ "%.2f"|format(match.confidence) if match.confidence is not none else "n/a" }}</td>
+                <td>{{ match.status }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="admin-empty-state admin-empty-state-tight">
+        <h4>No participant matches yet</h4>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

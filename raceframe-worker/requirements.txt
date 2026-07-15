@@ -1,0 +1,6 @@
+requests>=2.32,<3
+google-cloud-vision>=3.7,<4
+insightface>=0.7,<0.8
+onnxruntime>=1.18,<2
+opencv-python-headless>=4.10,<5
+numpy>=1.26,<3

@@ -18,6 +18,10 @@
 {% endblock %}
 
 {% block content %}
+  {% if message %}
+    <p class="message message-{{ message_level }} admin-message">{{ message }}</p>
+  {% endif %}
+
   <section class="admin-section user-search-section">
     <div class="admin-section-header">
       <div>
@@ -32,37 +36,62 @@
       <span>Location: {{ event.location if event.location else "Not set" }}</span>
     </div>
 
-    <form method="get" action="/user/events/{{ event.id }}" class="admin-form user-search-form">
-      <label class="admin-field">
-        <span class="admin-field-label">Bib Number Or Participant Name</span>
-        <input type="text" name="q" value="{{ search_term }}" placeholder="Eg. 1042 or Asha Kumar" required />
-      </label>
-      <div class="admin-form-actions user-search-actions">
-        <button class="admin-button admin-button-primary" type="submit">Search Photos</button>
-        {% if results and download_all_url %}
-          <a class="admin-button admin-button-secondary" href="{{ download_all_url }}">Download All</a>
-        {% endif %}
-      </div>
-    </form>
+    <div class="user-search-mode-grid">
+      <form method="post" action="/user/events/{{ event.id }}/selfies" enctype="multipart/form-data" class="admin-form user-search-form user-selfie-search-form">
+        <div>
+          <p class="admin-section-label">Required Search</p>
+          <h3>Bib + Face Search</h3>
+        </div>
+        <label class="admin-field">
+          <span class="admin-field-label">Participant Bib Or Name</span>
+          <input type="text" name="participant_query" value="{{ search_term }}" placeholder="Eg. 1042 or Asha Kumar" required />
+        </label>
+        <label class="admin-field">
+          <span class="admin-field-label">Face Photos From Different Angles</span>
+          <input type="file" name="selfie_files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple required />
+        </label>
+        <div class="admin-form-actions user-search-actions">
+          <button class="admin-button admin-button-secondary" type="submit">Upload And Match</button>
+        </div>
+      </form>
+
+      <form method="post" action="/user/events/{{ event.id }}/bib-only" class="admin-form user-search-form">
+        <div>
+          <p class="admin-section-label">Fallback Search</p>
+          <h3>Bib Only Reinforcement</h3>
+        </div>
+        <label class="admin-field">
+          <span class="admin-field-label">Participant Bib Or Name</span>
+          <input type="text" name="participant_query" value="{{ search_term }}" placeholder="Eg. 1042 or Asha Kumar" required />
+        </label>
+        <div class="admin-form-actions user-search-actions">
+          <button class="admin-button admin-button-secondary" type="submit">Search By Bib</button>
+        </div>
+      </form>
+    </div>
   </section>
 
-  {% if search_term %}
+  {% if face_search_session %}
     <section class="admin-section user-results-section">
       <div class="admin-section-header">
         <div>
-          <p class="admin-section-label">Search Results</p>
-          <h2>{{ results|length }} Photo{{ "" if results|length == 1 else "s" }}</h2>
+          <p class="admin-section-label">Face Search Results</p>
+          <h2>{{ face_search_results|length }} Hybrid Match{{ "" if face_search_results|length == 1 else "es" }}</h2>
         </div>
-        {% if matched_participants %}
-          <span class="admin-panel-meta">
-            {{ matched_participants|length }} participant{{ "" if matched_participants|length == 1 else "s" }} matched
-          </span>
-        {% endif %}
+        <span class="admin-status-pill upload-status-pill-{{ face_search_session.status }}">{{ face_search_session.status }}</span>
       </div>
+      <p class="user-face-status">
+        {% if face_search_session.images %}
+          {{ face_search_session.images|length }} face photo{{ "" if face_search_session.images|length == 1 else "s" }} uploaded.
+        {% else %}
+          Bib-only reinforcement used strong OCR matches to create temporary face seeds.
+        {% endif %}
+        Strong bib-only and strong face-only matches can pass; weak evidence must be supported by the other signal.
+      </p>
 
-      {% if results %}
+      {% if face_search_results %}
         <div class="user-results-grid">
-          {% for item in results %}
+          {% for item in face_search_results %}
             <article class="user-photo-card">
               <a class="user-photo-preview" href="{{ item.photo_url if item.photo_url else '/user/events/' ~ event.id ~ '/photos/' ~ item.photo.id ~ '/download' }}" target="_blank" rel="noreferrer">
                 {% if item.photo_url %}
@@ -73,13 +102,14 @@
               </a>
               <div class="user-photo-card-copy">
                 <h3>{{ item.photo.file_name }}</h3>
-                {% if item.matched_participants %}
-                  {% for participant in item.matched_participants %}
-                    <p class="user-photo-match">{{ participant.bib_number }} - {{ participant.full_name }}</p>
-                  {% endfor %}
-                {% elif item.direct_match_values %}
-                  <p class="user-photo-match">Direct OCR match: {{ item.direct_match_values[0] }}</p>
+                {% if item.evidence_labels %}
+                  <div class="user-photo-evidence-list">
+                    {% for label in item.evidence_labels %}
+                      <span>{{ label }}</span>
+                    {% endfor %}
+                  </div>
                 {% endif %}
+                <p class="user-photo-evidence">Faces detected: {{ item.photo.face_detections|length }}</p>
               </div>
               <div class="user-photo-card-actions">
                 <a class="admin-open-link admin-open-link-subtle" href="/user/events/{{ event.id }}/photos/{{ item.photo.id }}/download">Download</a>
@@ -89,8 +119,8 @@
         </div>
       {% else %}
         <div class="admin-empty-state admin-empty-state-tight">
-          <h4>No matching photos found</h4>
-          <p>Try the exact bib number or a broader participant-name search for this event.</p>
+          <h4>No face matches yet</h4>
+          <p>Refresh shortly after the worker has processed the uploaded face photos.</p>
         </div>
       {% endif %}
     </section>

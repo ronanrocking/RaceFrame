@@ -1439,10 +1439,33 @@ textarea:focus {
 
 .user-event-slug,
 .user-photo-match,
-.user-photo-fallback {
+.user-photo-fallback,
+.user-photo-evidence {
   margin: 0;
   color: var(--ink-soft);
   line-height: 1.6;
+}
+
+.user-photo-evidence {
+  font-size: 0.9rem;
+}
+
+.user-photo-evidence-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.user-photo-evidence-list span {
+  display: inline-flex;
+  padding: 4px 8px;
+  border: 1px solid rgba(22, 126, 144, 0.22);
+  color: var(--teal);
+  background: rgba(22, 126, 144, 0.07);
+  font-family: "Fira Code", "Courier New", monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .user-event-meta,
@@ -1468,6 +1491,24 @@ textarea:focus {
   background: rgba(255, 255, 255, 0.44);
 }
 
+.user-search-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.user-search-mode-grid .user-search-form {
+  max-width: none;
+  height: 100%;
+}
+
+.user-selfie-search-form input[type="file"] {
+  padding: 13px;
+  border-style: dashed;
+  background: rgba(255, 255, 255, 0.68);
+}
+
 .user-search-actions {
   gap: 12px;
   flex-wrap: wrap;
@@ -1475,6 +1516,56 @@ textarea:focus {
 
 .user-results-section {
   margin-top: 52px;
+}
+
+.user-face-section {
+  margin-top: 42px;
+}
+
+.user-face-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+.user-face-card {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid rgba(16, 47, 66, 0.14);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.user-face-card h3 {
+  margin: 6px 0 0;
+  font-family: "Barlow Condensed", Impact, sans-serif;
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 0.98;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+
+.user-face-status {
+  margin: 8px 0 0;
+  color: var(--ink-soft);
+}
+
+.user-face-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.user-face-form {
+  gap: 12px;
+}
+
+.user-face-form input[type="file"] {
+  padding: 13px;
+  border-style: dashed;
+  background: rgba(255, 255, 255, 0.68);
 }
 
 .user-photo-preview {
@@ -1492,6 +1583,96 @@ textarea:focus {
 .user-photo-card-actions {
   display: flex;
   justify-content: flex-start;
+}
+
+.admin-photo-detail-page .page-shell {
+  width: min(1180px, calc(100% - 48px));
+}
+
+.admin-photo-hero-section {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.admin-photo-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.75fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.admin-photo-detail-image {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.admin-photo-detail-image img {
+  display: block;
+  width: 100%;
+  max-height: 78vh;
+  object-fit: contain;
+}
+
+.admin-photo-detail-summary {
+  display: grid;
+  gap: 18px;
+  padding-top: 4px;
+}
+
+.admin-photo-detail-summary h2 {
+  margin: 0;
+  font-family: "Barlow Condensed", Impact, sans-serif;
+  font-size: 2.1rem;
+  line-height: 0.98;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+
+.admin-photo-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.admin-photo-metric-grid div {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.admin-photo-metric-grid strong {
+  display: block;
+  margin-top: 4px;
+  font-family: "Barlow Condensed", Impact, sans-serif;
+  font-size: 1.7rem;
+  line-height: 1;
+}
+
+.admin-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.admin-evidence-card {
+  display: grid;
+  gap: 7px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.admin-evidence-card strong {
+  font-family: "Barlow Condensed", Impact, sans-serif;
+  font-size: 1.22rem;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.admin-evidence-card span {
+  color: var(--ink-soft);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  word-break: break-word;
 }
 
 @media (max-width: 1080px) {
@@ -1639,7 +1820,9 @@ textarea:focus {
   }
 
   .user-event-grid,
-  .user-results-grid {
+  .user-results-grid,
+  .user-search-mode-grid,
+  .admin-photo-detail-layout {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1663,7 +1846,9 @@ textarea:focus {
   }
 
   .user-event-grid,
-  .user-results-grid {
+  .user-results-grid,
+  .user-search-mode-grid,
+  .admin-photo-detail-layout {
     grid-template-columns: 1fr;
   }
 }

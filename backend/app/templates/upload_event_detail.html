@@ -216,7 +216,7 @@
           if (item.progress >= 100 && item.status === "uploading") {
             item.status = "processing";
             item.label = "Processing";
-            item.note = "Upload complete. OCR processing is finishing.";
+            item.note = "Upload complete. Jobs are being queued.";
           }
           renderQueue();
         });
@@ -235,8 +235,8 @@
 
           if (xhr.status >= 200 && xhr.status < 300 && result && result.success) {
             item.status = "ready";
-            item.label = "Ready";
-            item.note = result.message || "Uploaded and processed.";
+            item.label = "Queued";
+            item.note = result.message || "Uploaded and queued.";
             item.href = result.photo_url || item.objectUrl;
           } else {
             item.status = "failed";

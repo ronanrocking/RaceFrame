@@ -1,0 +1,12 @@
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: raceframe-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./secrets:/worker/secrets:ro
+      - ./model-cache:/root/.insightface

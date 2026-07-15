@@ -8,4 +8,9 @@ testing/output/
 testing/bib_crop_output/
 testing/bib_crop_manual_output/
 testing/*.txt
+!testing/requirements*.txt
+testing/generated_dataset/
+testing/training_runs/
+testing/.ultralytics_config/
+Ultralytics/
 docs/handoff

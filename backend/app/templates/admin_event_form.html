@@ -223,6 +223,17 @@
         </div>
 
         {% if photo_items %}
+          <div class="upload-event-meta user-search-meta">
+            <span>Total: {{ photo_stats.total }}</span>
+            <span>Uploaded: {{ photo_stats.uploaded }}</span>
+            <span>Processing: {{ photo_stats.processing }}</span>
+            <span>Ready: {{ photo_stats.ready }}</span>
+            <span>Failed: {{ photo_stats.failed }}</span>
+            <span>Queued jobs: {{ photo_stats.queued_jobs }}</span>
+            <span>Running jobs: {{ photo_stats.processing_jobs }}</span>
+            <span>Completed jobs: {{ photo_stats.completed_jobs }}</span>
+            <span>Failed jobs: {{ photo_stats.failed_jobs }}</span>
+          </div>
           <div class="admin-table-wrap">
             <table class="admin-table admin-table-plain admin-photo-table">
               <thead>
@@ -242,17 +253,15 @@
                       <strong>{{ item.photo.file_name }}</strong>
                     </td>
                     <td>
-                      {% if item.photo_url %}
-                        <a class="admin-open-link admin-open-link-subtle" href="{{ item.photo_url }}" target="_blank" rel="noreferrer">Open</a>
-                      {% else %}
-                        <span class="muted-text">Not available</span>
-                      {% endif %}
+                      <a class="admin-open-link admin-open-link-subtle" href="/admin/events/{{ event.id }}/photos/{{ item.photo.id }}">Open</a>
                     </td>
                     <td>
                       <strong>{{ item.photo.status }}</strong>
                       {% if item.latest_job %}
                         <span class="admin-event-slug">Job: {{ item.latest_job.status }}</span>
                       {% endif %}
+                      <span class="admin-event-slug">OCR: {{ item.photo.detections|length }} text{{ "" if item.photo.detections|length == 1 else "s" }}</span>
+                      <span class="admin-event-slug">Faces: {{ item.photo.face_detections|length }}</span>
                       {% if item.latest_job and item.latest_job.error_message %}
                         <span class="status-error upload-error-text">{{ item.latest_job.error_message }}</span>
                       {% endif %}

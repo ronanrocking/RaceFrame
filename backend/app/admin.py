@@ -12,7 +12,20 @@ from openpyxl import load_workbook
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .models import AdminSessionLock, Event, Participant
+from .models import (
+    AdminSessionLock,
+    Event,
+    FaceParticipantMatch,
+    FaceSearchImage,
+    FaceSearchJob,
+    FaceSearchResult,
+    FaceSearchSession,
+    Participant,
+    ParticipantFaceEmbedding,
+    ParticipantFaceImage,
+    ParticipantFaceJob,
+    PhotoParticipantMatch,
+)
 
 
 EVENT_STATUSES = ("draft", "published")
@@ -351,11 +364,18 @@ def update_participant(
 
 
 def delete_participant(session: Session, *, participant: Participant) -> None:
+    cleanup_participant_identity_data(session, participant_ids=[participant.id])
     session.delete(participant)
     session.commit()
 
 
 def delete_all_participants(session: Session, *, event: Event) -> int:
+    participant_ids = list(
+        session.execute(
+            select(Participant.id).where(Participant.event_id == event.id)
+        ).scalars()
+    )
+    cleanup_participant_identity_data(session, participant_ids=participant_ids)
     count = (
         session.query(Participant)
         .filter(Participant.event_id == event.id)
@@ -363,6 +383,45 @@ def delete_all_participants(session: Session, *, event: Event) -> int:
     )
     session.commit()
     return count
+
+
+def cleanup_participant_identity_data(session: Session, *, participant_ids: Iterable[uuid.UUID]) -> None:
+    ids = list(participant_ids)
+    if not ids:
+        return
+
+    search_session_ids = list(
+        session.execute(
+            select(FaceSearchSession.id).where(FaceSearchSession.participant_id.in_(ids))
+        ).scalars()
+    )
+    search_image_ids = []
+    if search_session_ids:
+        search_image_ids = list(
+            session.execute(
+                select(FaceSearchImage.id).where(FaceSearchImage.search_session_id.in_(search_session_ids))
+            ).scalars()
+        )
+        session.query(FaceSearchResult).filter(FaceSearchResult.search_session_id.in_(search_session_ids)).delete(synchronize_session=False)
+        if search_image_ids:
+            session.query(FaceSearchJob).filter(FaceSearchJob.search_image_id.in_(search_image_ids)).delete(synchronize_session=False)
+        session.query(FaceSearchJob).filter(FaceSearchJob.search_session_id.in_(search_session_ids)).delete(synchronize_session=False)
+        session.query(FaceSearchImage).filter(FaceSearchImage.search_session_id.in_(search_session_ids)).delete(synchronize_session=False)
+        session.query(FaceSearchSession).filter(FaceSearchSession.id.in_(search_session_ids)).delete(synchronize_session=False)
+
+    face_image_ids = list(
+        session.execute(
+            select(ParticipantFaceImage.id).where(ParticipantFaceImage.participant_id.in_(ids))
+        ).scalars()
+    )
+    session.query(FaceParticipantMatch).filter(FaceParticipantMatch.participant_id.in_(ids)).delete(synchronize_session=False)
+    session.query(PhotoParticipantMatch).filter(PhotoParticipantMatch.participant_id.in_(ids)).delete(synchronize_session=False)
+    session.query(ParticipantFaceJob).filter(ParticipantFaceJob.participant_id.in_(ids)).delete(synchronize_session=False)
+    session.query(ParticipantFaceEmbedding).filter(ParticipantFaceEmbedding.participant_id.in_(ids)).delete(synchronize_session=False)
+    if face_image_ids:
+        session.query(ParticipantFaceJob).filter(ParticipantFaceJob.face_image_id.in_(face_image_ids)).delete(synchronize_session=False)
+        session.query(ParticipantFaceEmbedding).filter(ParticipantFaceEmbedding.face_image_id.in_(face_image_ids)).delete(synchronize_session=False)
+    session.query(ParticipantFaceImage).filter(ParticipantFaceImage.participant_id.in_(ids)).delete(synchronize_session=False)
 
 
 def acquire_admin_lock(session: Session, *, session_id: str) -> bool:
