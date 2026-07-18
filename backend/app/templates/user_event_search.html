@@ -38,6 +38,7 @@
 
     <div class="user-search-mode-grid">
       <form method="post" action="/user/events/{{ event.id }}/selfies" enctype="multipart/form-data" class="admin-form user-search-form user-selfie-search-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
         <div>
           <p class="admin-section-label">Required Search</p>
           <h3>Bib + Face Search</h3>
@@ -56,6 +57,7 @@
       </form>
 
       <form method="post" action="/user/events/{{ event.id }}/bib-only" class="admin-form user-search-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
         <div>
           <p class="admin-section-label">Fallback Search</p>
           <h3>Bib Only Reinforcement</h3>

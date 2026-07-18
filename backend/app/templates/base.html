@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ title if title else "RaceFrame" }}</title>
-    <link rel="stylesheet" href="/static/admin.css?v=12" />
+    <link rel="stylesheet" href="/static/admin.css?v=15" />
   </head>
   <body class="{% block body_class %}{% endblock %}">
     <div class="site-chrome {% block site_chrome_class %}{% endblock %}">
@@ -40,5 +40,11 @@
       </header>
       {% block content %}{% endblock %}
     </div>
+    <script nonce="{{ csp_nonce }}">
+      document.addEventListener("submit", (event) => {
+        const message = event.target && event.target.dataset ? event.target.dataset.confirm : "";
+        if (message && !window.confirm(message)) event.preventDefault();
+      });
+    </script>
   </body>
 </html>

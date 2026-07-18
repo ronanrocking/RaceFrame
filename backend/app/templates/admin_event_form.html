@@ -42,6 +42,7 @@
         </div>
 
         <form method="post" action="{{ form_action }}" class="admin-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
           <label class="admin-field">
             <span class="admin-field-label">Event Name</span>
             <input name="name" required value="{{ source.name if source else '' }}" placeholder="Bangalore City Marathon 2026" />
@@ -88,6 +89,7 @@
         </div>
 
         <form method="post" action="{{ form_action }}" class="admin-form admin-edit-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
           <label class="admin-field">
             <span class="admin-field-label">Name</span>
             <input name="name" required value="{{ source.name if source else '' }}" placeholder="Bangalore City Marathon 2026" />
@@ -131,6 +133,7 @@
 
         <div class="admin-edit-participant-options">
           <form method="post" action="/admin/events/{{ event.id }}/participants/add" class="admin-form admin-edit-option-block admin-edit-quick-add admin-edit-option-left">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <div class="admin-edit-option-copy">
               <span class="admin-field-label">Quick Add</span>
               <p class="admin-edit-caption">Add one participant directly.</p>
@@ -149,6 +152,7 @@
           </form>
 
           <form method="post" action="/admin/events/{{ event.id }}/participants/upload" enctype="multipart/form-data" class="admin-form admin-edit-option-block admin-edit-upload-form admin-edit-option-right">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <div class="admin-edit-option-copy">
               <span class="admin-field-label">Upload CSV</span>
               <p class="admin-edit-caption">Replace or update the roster from a file.</p>
@@ -193,11 +197,13 @@
                     </td>
                     <td>
                       <form id="update-participant-{{ participant.id }}" method="post" action="/admin/events/{{ event.id }}/participants/{{ participant.id }}/update">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                         <button class="admin-button admin-button-secondary admin-button-small" type="submit">Save</button>
                       </form>
                     </td>
                     <td>
-                      <form method="post" action="/admin/events/{{ event.id }}/participants/{{ participant.id }}/delete" onsubmit="return confirm('Delete this participant? This cannot be undone.');">
+                      <form method="post" action="/admin/events/{{ event.id }}/participants/{{ participant.id }}/delete" data-confirm="Delete this participant? This cannot be undone.">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                         <button class="admin-button admin-button-danger admin-button-small" type="submit">Delete</button>
                       </form>
                     </td>
@@ -222,63 +228,52 @@
           <span class="admin-panel-meta">{{ photo_count }} photo{{ "" if photo_count == 1 else "s" }}</span>
         </div>
 
-        {% if photo_items %}
-          <div class="upload-event-meta user-search-meta">
-            <span>Total: {{ photo_stats.total }}</span>
-            <span>Uploaded: {{ photo_stats.uploaded }}</span>
-            <span>Processing: {{ photo_stats.processing }}</span>
-            <span>Ready: {{ photo_stats.ready }}</span>
-            <span>Failed: {{ photo_stats.failed }}</span>
-            <span>Queued jobs: {{ photo_stats.queued_jobs }}</span>
-            <span>Running jobs: {{ photo_stats.processing_jobs }}</span>
-            <span>Completed jobs: {{ photo_stats.completed_jobs }}</span>
-            <span>Failed jobs: {{ photo_stats.failed_jobs }}</span>
-          </div>
-          <div class="admin-table-wrap">
-            <table class="admin-table admin-table-plain admin-photo-table">
-              <thead>
-                <tr>
-                  <th>File</th>
-                  <th>Open</th>
-                  <th>Status</th>
-                  <th>Matches</th>
-                  <th>Created</th>
-                  <th>Delete</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for item in photo_items %}
-                  <tr>
-                    <td>
-                      <strong>{{ item.photo.file_name }}</strong>
-                    </td>
-                    <td>
-                      <a class="admin-open-link admin-open-link-subtle" href="/admin/events/{{ event.id }}/photos/{{ item.photo.id }}">Open</a>
-                    </td>
-                    <td>
-                      <strong>{{ item.photo.status }}</strong>
-                      {% if item.latest_job %}
-                        <span class="admin-event-slug">Job: {{ item.latest_job.status }}</span>
-                      {% endif %}
-                      <span class="admin-event-slug">OCR: {{ item.photo.detections|length }} text{{ "" if item.photo.detections|length == 1 else "s" }}</span>
-                      <span class="admin-event-slug">Faces: {{ item.photo.face_detections|length }}</span>
-                      {% if item.latest_job and item.latest_job.error_message %}
-                        <span class="status-error upload-error-text">{{ item.latest_job.error_message }}</span>
-                      {% endif %}
-                    </td>
-                    <td>{{ item.photo.matches|length }}</td>
-                    <td>{{ item.photo.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
-                    <td>
-                      <form method="post" action="/admin/events/{{ event.id }}/photos/{{ item.photo.id }}/delete" onsubmit="return confirm('Delete this photo record? This cannot be undone.');">
-                        <button class="admin-button admin-button-danger admin-button-small" type="submit">Delete</button>
-                      </form>
-                    </td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
+        {% if photo_count %}
+          <div class="admin-photo-stats-grid">
+            <div class="admin-stat-card">
+              <span class="admin-stat-label">Total Photos</span>
+              <p class="admin-stat-value">{{ photo_stats.total }}</p>
+              <p class="admin-stat-note">{{ photo_stats.total_file_size_mb }} MB stored, {{ photo_stats.average_file_size_mb }} MB average</p>
+            </div>
+            <div class="admin-stat-card">
+              <span class="admin-stat-label">Ready</span>
+              <p class="admin-stat-value">{{ photo_stats.ready }}</p>
+              <p class="admin-stat-note">{{ photo_stats.processing }} processing, {{ photo_stats.failed }} failed</p>
+            </div>
+            <div class="admin-stat-card">
+              <span class="admin-stat-label">Jobs</span>
+              <p class="admin-stat-value">{{ photo_stats.completed_jobs }}</p>
+              <p class="admin-stat-note">{{ photo_stats.queued_jobs }} queued, {{ photo_stats.processing_jobs }} running, {{ photo_stats.failed_jobs }} failed</p>
+            </div>
+            <div class="admin-stat-card">
+              <span class="admin-stat-label">Thumbnails</span>
+              <p class="admin-stat-value">{{ photo_stats.thumbnails }}</p>
+              <p class="admin-stat-note">{{ photo_stats.missing_thumbnails }} older/original-only photo{{ "" if photo_stats.missing_thumbnails == 1 else "s" }}</p>
+            </div>
           </div>
 
+          <div class="admin-photo-stats-grid admin-photo-stats-grid-secondary">
+            <div class="admin-stat-card">
+              <span class="admin-stat-label">OCR Text</span>
+              <p class="admin-stat-value">{{ photo_stats.text_detections }}</p>
+              <p class="admin-stat-note">{{ photo_stats.ocr_jobs }} OCR job{{ "" if photo_stats.ocr_jobs == 1 else "s" }} created</p>
+            </div>
+            <div class="admin-stat-card">
+              <span class="admin-stat-label">Faces</span>
+              <p class="admin-stat-value">{{ photo_stats.face_detections }}</p>
+              <p class="admin-stat-note">{{ photo_stats.face_scan_jobs }} face scan job{{ "" if photo_stats.face_scan_jobs == 1 else "s" }} created</p>
+            </div>
+            <div class="admin-stat-card">
+              <span class="admin-stat-label">Bib Matches</span>
+              <p class="admin-stat-value">{{ photo_stats.participant_matches }}</p>
+              <p class="admin-stat-note">Stored participant-photo links</p>
+            </div>
+            <div class="admin-stat-card">
+              <span class="admin-stat-label">Face Matches</span>
+              <p class="admin-stat-value">{{ photo_stats.face_matches }}</p>
+              <p class="admin-stat-note">Stored face-photo links</p>
+            </div>
+          </div>
         {% else %}
           <div class="admin-empty-state admin-empty-state-tight">
             <h4>No photos uploaded yet</h4>
@@ -297,21 +292,24 @@
         <div class="admin-danger-list">
           <div class="admin-danger-row">
             <p class="admin-danger-title">Delete All Participants</p>
-            <form method="post" action="/admin/events/{{ event.id }}/participants/delete-all" onsubmit="return confirm('Delete all participants for this event? This cannot be undone.');">
+            <form method="post" action="/admin/events/{{ event.id }}/participants/delete-all" data-confirm="Delete all participants for this event? This cannot be undone.">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
               <button class="admin-button admin-button-danger" type="submit">Delete All Participants</button>
             </form>
           </div>
 
           <div class="admin-danger-row">
             <p class="admin-danger-title">Delete All Photos</p>
-            <form method="post" action="/admin/events/{{ event.id }}/photos/delete-all" onsubmit="return confirm('Delete all event photos? This cannot be undone.');">
+            <form method="post" action="/admin/events/{{ event.id }}/photos/delete-all" data-confirm="Delete all event photos? This cannot be undone.">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
               <button class="admin-button admin-button-danger" type="submit">Delete All Photos</button>
             </form>
           </div>
 
           <div class="admin-danger-row">
             <p class="admin-danger-title">Delete Event</p>
-            <form method="post" action="/admin/events/{{ event.id }}/delete" onsubmit="return confirm('Delete this event and all related records? This cannot be undone.');">
+            <form method="post" action="/admin/events/{{ event.id }}/delete" data-confirm="Delete this event and all related records? This cannot be undone.">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
               <button class="admin-button admin-button-danger" type="submit">Delete Event</button>
             </form>
           </div>

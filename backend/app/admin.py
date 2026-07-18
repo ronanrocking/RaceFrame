@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import re
 import uuid
+import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
 from openpyxl import load_workbook
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from .models import (
@@ -26,6 +30,12 @@ from .models import (
     ParticipantFaceJob,
     PhotoParticipantMatch,
 )
+from .config import settings
+from .maintenance import enqueue_object_deletion, process_object_deletions
+from .participant_lookup import normalize_bib_lookup, normalize_name_lookup
+
+
+logger = logging.getLogger(__name__)
 
 
 EVENT_STATUSES = ("draft", "published")
@@ -193,11 +203,24 @@ def update_event(
 
 
 def delete_event(session: Session, *, event: Event) -> None:
+    object_keys = list(
+        session.execute(select(FaceSearchImage.object_key).where(FaceSearchImage.event_id == event.id)).scalars()
+    )
+    object_keys.extend(
+        session.execute(select(ParticipantFaceImage.object_key).where(ParticipantFaceImage.event_id == event.id)).scalars()
+    )
+    for object_key in object_keys:
+        enqueue_object_deletion(session, object_key)
     session.delete(event)
     session.commit()
+    process_object_deletions(session, limit=min(len(object_keys), settings.deletion_retry_batch_size))
 
 
 def parse_participant_file(file_name: str, content: bytes) -> list[dict[str, str]]:
+    if not content:
+        raise ValueError("Participant upload is empty.")
+    if len(content) > settings.max_participant_upload_bytes:
+        raise ValueError("Participant upload exceeds the configured size limit.")
     suffix = file_name.lower().rsplit(".", 1)[-1] if "." in file_name else ""
     if suffix == "csv":
         return _parse_csv(content)
@@ -207,31 +230,73 @@ def parse_participant_file(file_name: str, content: bytes) -> list[dict[str, str
 
 
 def _parse_csv(content: bytes) -> list[dict[str, str]]:
-    text = content.decode("utf-8-sig")
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise ValueError("CSV must be UTF-8 encoded.") from None
     reader = csv.DictReader(io.StringIO(text))
     if not reader.fieldnames:
         raise ValueError("CSV file is missing a header row.")
-    return [_normalize_row(row) for row in reader]
+    if len(reader.fieldnames) > settings.max_participant_columns:
+        raise ValueError("Participant file has too many columns.")
+    rows: list[dict[str, str]] = []
+    for index, row in enumerate(reader, start=1):
+        if index > settings.max_participant_rows:
+            raise ValueError("Participant file has too many rows.")
+        rows.append(_normalize_row(row))
+    return rows
 
 
 def _parse_excel(content: bytes) -> list[dict[str, str]]:
-    workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
-    sheet = workbook.active
-    rows = list(sheet.iter_rows(values_only=True))
-    if not rows:
-        raise ValueError("Spreadsheet is empty.")
-    headers = [normalize_header(cell) for cell in rows[0]]
-    if not any(headers):
-        raise ValueError("Spreadsheet is missing a header row.")
-    normalized_rows: list[dict[str, str]] = []
-    for values in rows[1:]:
-        row = {headers[index]: "" if value is None else str(value).strip() for index, value in enumerate(values)}
-        normalized_rows.append(_normalize_row(row))
-    return normalized_rows
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            entries = archive.infolist()
+            if len(entries) > 2_000:
+                raise ValueError("Spreadsheet archive contains too many files.")
+            expanded_size = sum(entry.file_size for entry in entries)
+            compressed_size = max(1, sum(entry.compress_size for entry in entries))
+            if expanded_size > settings.max_spreadsheet_uncompressed_bytes or expanded_size / compressed_size > 100:
+                raise ValueError("Spreadsheet archive expands beyond the configured safety limit.")
+    except zipfile.BadZipFile:
+        raise ValueError("Spreadsheet is not a valid XLSX file.") from None
+
+    try:
+        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True, keep_links=False)
+        sheet = workbook.active
+        rows = sheet.iter_rows(values_only=True)
+        first_row = next(rows, None)
+        if first_row is None:
+            raise ValueError("Spreadsheet is empty.")
+        if len(first_row) > settings.max_participant_columns:
+            raise ValueError("Participant file has too many columns.")
+        headers = [normalize_header(cell) for cell in first_row]
+        if not any(headers):
+            raise ValueError("Spreadsheet is missing a header row.")
+        normalized_rows: list[dict[str, str]] = []
+        for row_index, values in enumerate(rows, start=1):
+            if row_index > settings.max_participant_rows:
+                raise ValueError("Participant file has too many rows.")
+            if len(values) > settings.max_participant_columns:
+                raise ValueError("Participant file has too many columns.")
+            row = {headers[index]: "" if value is None else str(value).strip() for index, value in enumerate(values)}
+            normalized_rows.append(_normalize_row(row))
+        return normalized_rows
+    except (OSError, KeyError, ValueError) as exc:
+        if isinstance(exc, ValueError):
+            raise
+        raise ValueError("Spreadsheet could not be parsed safely.") from None
+    finally:
+        if "workbook" in locals():
+            workbook.close()
 
 
 def _normalize_row(raw_row: dict[object, object]) -> dict[str, str]:
-    normalized = {normalize_header(key): str(value or "").strip() for key, value in raw_row.items()}
+    normalized: dict[str, str] = {}
+    for key, value in raw_row.items():
+        text = str(value or "").strip()
+        if len(text) > settings.max_participant_cell_chars:
+            raise ValueError("A participant cell exceeds the configured length limit.")
+        normalized[normalize_header(key)] = text
 
     first_name = _read_value(normalized, "first_name")
     last_name = _read_value(normalized, "last_name")
@@ -266,39 +331,58 @@ def upsert_participants(
         if not bib_number or not full_name:
             skipped_rows += 1
             continue
-        cleaned_rows.append({"bib_number": bib_number, "full_name": full_name})
+        if len(bib_number) > 64 or len(full_name) > 255:
+            skipped_rows += 1
+            continue
+        bib_lookup = normalize_bib_lookup(bib_number)
+        if not bib_lookup:
+            skipped_rows += 1
+            continue
+        cleaned_rows.append(
+            {
+                "bib_number": bib_number,
+                "full_name": full_name,
+                "bib_lookup": bib_lookup,
+                "name_lookup": normalize_name_lookup(full_name),
+            }
+        )
 
     if not cleaned_rows:
         return ParticipantUploadResult(processed_rows=0, inserted_rows=0, updated_rows=0, skipped_rows=skipped_rows)
 
     existing = {
-        participant.bib_number: participant
+        participant.bib_lookup: participant
         for participant in session.execute(
             select(Participant).where(
                 Participant.event_id == event.id,
-                Participant.bib_number.in_([row["bib_number"] for row in cleaned_rows]),
+                Participant.bib_lookup.in_([row["bib_lookup"] for row in cleaned_rows]),
             )
         ).scalars()
     }
 
     inserted_rows = 0
     updated_rows = 0
-    deduped_by_bib = {row["bib_number"]: row for row in cleaned_rows}
+    deduped_by_bib = {row["bib_lookup"]: row for row in cleaned_rows}
 
-    for bib_number, row in deduped_by_bib.items():
-        participant = existing.get(bib_number)
+    for bib_lookup, row in deduped_by_bib.items():
+        participant = existing.get(bib_lookup)
         if participant is None:
             session.add(
                 Participant(
                     event_id=event.id,
-                    bib_number=bib_number,
+                    bib_number=row["bib_number"],
                     full_name=row["full_name"],
+                    bib_lookup=bib_lookup,
+                    name_lookup=row["name_lookup"],
                 )
             )
             inserted_rows += 1
             continue
-        if participant.full_name != row["full_name"]:
+        if participant.full_name != row["full_name"] or participant.bib_number != row["bib_number"]:
+            participant.bib_number = row["bib_number"]
             participant.full_name = row["full_name"]
+            participant.bib_lookup = bib_lookup
+            participant.name_lookup = row["name_lookup"]
             updated_rows += 1
 
     session.commit()
@@ -314,18 +398,25 @@ def upsert_participants(
 def add_participant(session: Session, *, event: Event, bib_number: str, full_name: str) -> Participant:
     normalized_bib = bib_number.strip()
     normalized_name = full_name.strip()
-    if not normalized_bib or not normalized_name:
+    bib_lookup = normalize_bib_lookup(normalized_bib)
+    if not bib_lookup or not normalized_name:
         raise ValueError("Bib number and full name are required.")
 
     existing = (
         session.query(Participant)
-        .filter(Participant.event_id == event.id, Participant.bib_number == normalized_bib)
+        .filter(Participant.event_id == event.id, Participant.bib_lookup == bib_lookup)
         .one_or_none()
     )
     if existing is not None:
         raise ValueError("That bib number already exists for this event.")
 
-    participant = Participant(event_id=event.id, bib_number=normalized_bib, full_name=normalized_name)
+    participant = Participant(
+        event_id=event.id,
+        bib_number=normalized_bib,
+        full_name=normalized_name,
+        bib_lookup=bib_lookup,
+        name_lookup=normalize_name_lookup(normalized_name),
+    )
     session.add(participant)
     session.commit()
     session.refresh(participant)
@@ -341,14 +432,15 @@ def update_participant(
 ) -> Participant:
     normalized_bib = bib_number.strip()
     normalized_name = full_name.strip()
-    if not normalized_bib or not normalized_name:
+    bib_lookup = normalize_bib_lookup(normalized_bib)
+    if not bib_lookup or not normalized_name:
         raise ValueError("Bib number and full name are required.")
 
     existing = (
         session.query(Participant)
         .filter(
             Participant.event_id == participant.event_id,
-            Participant.bib_number == normalized_bib,
+            Participant.bib_lookup == bib_lookup,
             Participant.id != participant.id,
         )
         .one_or_none()
@@ -358,6 +450,8 @@ def update_participant(
 
     participant.bib_number = normalized_bib
     participant.full_name = normalized_name
+    participant.bib_lookup = bib_lookup
+    participant.name_lookup = normalize_name_lookup(normalized_name)
     session.commit()
     session.refresh(participant)
     return participant
@@ -367,6 +461,7 @@ def delete_participant(session: Session, *, participant: Participant) -> None:
     cleanup_participant_identity_data(session, participant_ids=[participant.id])
     session.delete(participant)
     session.commit()
+    process_object_deletions(session)
 
 
 def delete_all_participants(session: Session, *, event: Event) -> int:
@@ -382,6 +477,7 @@ def delete_all_participants(session: Session, *, event: Event) -> int:
         .delete(synchronize_session=False)
     )
     session.commit()
+    process_object_deletions(session)
     return count
 
 
@@ -397,6 +493,13 @@ def cleanup_participant_identity_data(session: Session, *, participant_ids: Iter
     )
     search_image_ids = []
     if search_session_ids:
+        search_object_keys = list(
+            session.execute(
+                select(FaceSearchImage.object_key).where(FaceSearchImage.search_session_id.in_(search_session_ids))
+            ).scalars()
+        )
+        for object_key in search_object_keys:
+            enqueue_object_deletion(session, object_key)
         search_image_ids = list(
             session.execute(
                 select(FaceSearchImage.id).where(FaceSearchImage.search_session_id.in_(search_session_ids))
@@ -409,11 +512,14 @@ def cleanup_participant_identity_data(session: Session, *, participant_ids: Iter
         session.query(FaceSearchImage).filter(FaceSearchImage.search_session_id.in_(search_session_ids)).delete(synchronize_session=False)
         session.query(FaceSearchSession).filter(FaceSearchSession.id.in_(search_session_ids)).delete(synchronize_session=False)
 
-    face_image_ids = list(
+    face_images = list(
         session.execute(
-            select(ParticipantFaceImage.id).where(ParticipantFaceImage.participant_id.in_(ids))
+            select(ParticipantFaceImage).where(ParticipantFaceImage.participant_id.in_(ids))
         ).scalars()
     )
+    face_image_ids = [image.id for image in face_images]
+    for image in face_images:
+        enqueue_object_deletion(session, image.object_key)
     session.query(FaceParticipantMatch).filter(FaceParticipantMatch.participant_id.in_(ids)).delete(synchronize_session=False)
     session.query(PhotoParticipantMatch).filter(PhotoParticipantMatch.participant_id.in_(ids)).delete(synchronize_session=False)
     session.query(ParticipantFaceJob).filter(ParticipantFaceJob.participant_id.in_(ids)).delete(synchronize_session=False)
@@ -425,37 +531,31 @@ def cleanup_participant_identity_data(session: Session, *, participant_ids: Iter
 
 
 def acquire_admin_lock(session: Session, *, session_id: str) -> bool:
-    lock = session.get(AdminSessionLock, ADMIN_LOCK_ID)
     now = utc_now()
-
-    if lock is None:
-        lock = AdminSessionLock(id=ADMIN_LOCK_ID, session_id=session_id, last_seen_at=now)
-        session.add(lock)
-        session.commit()
-        return True
-
-    if lock.session_id == session_id:
-        lock.last_seen_at = now
-        session.commit()
-        return True
-
-    if lock.last_seen_at < now - ADMIN_SESSION_TTL:
-        lock.session_id = session_id
-        lock.last_seen_at = now
-        session.commit()
-        return True
-
-    return False
+    table = AdminSessionLock.__table__
+    insert_factory = sqlite_insert if session.get_bind().dialect.name == "sqlite" else postgresql_insert
+    statement = insert_factory(table).values(id=ADMIN_LOCK_ID, session_id=session_id, last_seen_at=now)
+    result = session.execute(
+        statement.on_conflict_do_update(
+            index_elements=[table.c.id],
+            set_={"session_id": session_id, "last_seen_at": now},
+            where=(table.c.session_id == session_id) | (table.c.last_seen_at < now - ADMIN_SESSION_TTL),
+        ).returning(table.c.session_id)
+    )
+    acquired_session_id = result.scalar_one_or_none()
+    session.commit()
+    return acquired_session_id == session_id
 
 
 def force_admin_lock(session: Session, *, session_id: str) -> None:
-    lock = session.get(AdminSessionLock, ADMIN_LOCK_ID)
     now = utc_now()
-
-    if lock is None:
-        lock = AdminSessionLock(id=ADMIN_LOCK_ID, session_id=session_id, last_seen_at=now)
-        session.add(lock)
-    else:
-        lock.session_id = session_id
-        lock.last_seen_at = now
+    table = AdminSessionLock.__table__
+    insert_factory = sqlite_insert if session.get_bind().dialect.name == "sqlite" else postgresql_insert
+    statement = insert_factory(table).values(id=ADMIN_LOCK_ID, session_id=session_id, last_seen_at=now)
+    session.execute(
+        statement.on_conflict_do_update(
+            index_elements=[table.c.id],
+            set_={"session_id": session_id, "last_seen_at": now},
+        )
+    )
     session.commit()

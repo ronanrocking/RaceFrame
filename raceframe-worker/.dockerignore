@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.git
+.github
+__pycache__
+*.py[cod]
+*.log
+.pytest_cache
+.ruff_cache
+model-cache
+secrets

@@ -1,0 +1,9 @@
+# Direct production dependencies. Regenerate requirements.txt in a clean Linux
+# container after reviewing release notes and security advisories.
+google-cloud-vision==3.15.0
+insightface==0.7.3
+numpy==2.4.6
+onnxruntime==1.27.0
+opencv-python-headless==4.13.0.92
+pillow==12.3.0
+requests==2.34.2

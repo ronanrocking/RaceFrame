@@ -31,8 +31,15 @@ This MVP database design only includes these tables:
 - `photo_jobs`
 - `photo_text_detection`
 - `photo_participant_matches`
+- `participant_face_images`
+- `participant_face_jobs`
+- `participant_face_embeddings`
+- `photo_face_detections`
+- `face_participant_matches`
 
 No auth or role tables are included yet. `admin`, `photographer`, and public `user` access are handled outside the database for now.
+
+Face recognition is a testing extension. OCR detections and face detections are stored as separate evidence. Final searchable results still flow through `photo_participant_matches`.
 
 ## ER Diagram
 
@@ -238,6 +245,20 @@ Recommended constraints:
 - foreign key `photo_id -> photos.id`
 - foreign key `participant_id -> participants.id`
 - unique on `(photo_id, participant_id)`
+
+### Face recognition tables
+
+`participant_face_images` stores selfie uploads for a participant.
+
+`participant_face_jobs` queues selfie enrollment work for the worker.
+
+`participant_face_embeddings` stores the face vectors produced from selfies.
+
+`photo_face_detections` stores every detected face and embedding from race photos.
+
+`face_participant_matches` stores raw face-match evidence before it is merged into `photo_participant_matches`.
+
+Final `photo_participant_matches.match_source` values can be `ocr`, `face`, or `ocr+face`.
 
 ## Recommended Indexes
 

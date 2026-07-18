@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import logging
 import re
 import uuid
 from collections.abc import Iterable
@@ -11,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from .config import settings
-from .face import score_bib_evidence, upsert_final_photo_participant_match
+from .face import exact_bib_match_values, score_bib_evidence, upsert_final_photo_participant_match
 from .models import (
     Event,
     FaceParticipantMatch,
@@ -24,25 +26,23 @@ from .models import (
     PhotoParticipantMatch,
     PhotoTextDetection,
 )
+from .maintenance import enqueue_object_deletion, process_object_deletions
+from .participant_lookup import normalize_bib_lookup
+from .storage import (
+    delete_object,
+    generate_download_url,
+    get_object_body,
+    get_object_storage_client,
+    is_object_storage_configured,
+    put_object,
+)
+from .uploads import validate_image_bytes
 
 
 PUBLISHED_STATUS = "published"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
-
-
-@dataclass
-class OCRTextDetectionResult:
-    detected_text: str
-    normalized_text: str
-    confidence: float | None
-    bounding_box_json: dict | None
-
-
-@dataclass
-class OCRResult:
-    detections: list[OCRTextDetectionResult]
-    raw_response_json: dict
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -57,12 +57,6 @@ class UploadedPhotoResult:
 class PhotographerPhotoListItem:
     photo: Photo
     latest_job: PhotoJob | None
-    photo_url: str | None
-
-
-@dataclass
-class UserPhotoListItem:
-    photo: Photo
     photo_url: str | None
 
 
@@ -141,6 +135,100 @@ def count_event_participants(session: Session, *, event_id: uuid.UUID) -> int:
     )
 
 
+def build_event_photo_stats(session: Session, *, event_id: uuid.UUID) -> dict[str, int | float]:
+    total_count, total_file_size, thumbnail_count = session.execute(
+        select(
+            func.count(Photo.id),
+            func.coalesce(func.sum(Photo.file_size), 0),
+            func.count(Photo.thumbnail_object_key),
+        ).where(Photo.event_id == event_id)
+    ).one()
+
+    photo_status_counts = {
+        status: int(count)
+        for status, count in session.execute(
+            select(Photo.status, func.count(Photo.id))
+            .where(Photo.event_id == event_id)
+            .group_by(Photo.status)
+        ).all()
+    }
+    job_status_counts = {
+        status: int(count)
+        for status, count in session.execute(
+            select(PhotoJob.status, func.count(PhotoJob.id))
+            .join(Photo, Photo.id == PhotoJob.photo_id)
+            .where(Photo.event_id == event_id)
+            .group_by(PhotoJob.status)
+        ).all()
+    }
+    job_type_counts = {
+        job_type: int(count)
+        for job_type, count in session.execute(
+            select(PhotoJob.job_type, func.count(PhotoJob.id))
+            .join(Photo, Photo.id == PhotoJob.photo_id)
+            .where(Photo.event_id == event_id)
+            .group_by(PhotoJob.job_type)
+        ).all()
+    }
+
+    text_detection_count = int(
+        session.execute(
+            select(func.count(PhotoTextDetection.id))
+            .join(Photo, Photo.id == PhotoTextDetection.photo_id)
+            .where(Photo.event_id == event_id)
+        ).scalar_one()
+        or 0
+    )
+    face_detection_count = int(
+        session.execute(
+            select(func.count(PhotoFaceDetection.id))
+            .join(Photo, Photo.id == PhotoFaceDetection.photo_id)
+            .where(Photo.event_id == event_id)
+        ).scalar_one()
+        or 0
+    )
+    participant_match_count = int(
+        session.execute(
+            select(func.count(PhotoParticipantMatch.id))
+            .where(PhotoParticipantMatch.event_id == event_id)
+        ).scalar_one()
+        or 0
+    )
+    face_match_count = int(
+        session.execute(
+            select(func.count(FaceParticipantMatch.id))
+            .where(FaceParticipantMatch.event_id == event_id)
+        ).scalar_one()
+        or 0
+    )
+
+    total = int(total_count or 0)
+    size_bytes = int(total_file_size or 0)
+    thumbnails = int(thumbnail_count or 0)
+    return {
+        "total": total,
+        "uploaded": photo_status_counts.get("uploaded", 0),
+        "processing": photo_status_counts.get("processing", 0),
+        "ready": photo_status_counts.get("ready", 0),
+        "failed": photo_status_counts.get("failed", 0),
+        "queued_jobs": job_status_counts.get("queued", 0),
+        "processing_jobs": job_status_counts.get("processing", 0),
+        "completed_jobs": job_status_counts.get("completed", 0),
+        "failed_jobs": job_status_counts.get("failed", 0),
+        "ocr_jobs": job_type_counts.get("ocr", 0),
+        "face_scan_jobs": job_type_counts.get("face_photo_scan", 0),
+        "text_detections": text_detection_count,
+        "face_detections": face_detection_count,
+        "participant_matches": participant_match_count,
+        "face_matches": face_match_count,
+        "thumbnails": thumbnails,
+        "missing_thumbnails": max(total - thumbnails, 0),
+        "total_file_size_bytes": size_bytes,
+        "total_file_size_mb": round(size_bytes / (1024 * 1024), 1),
+        "average_file_size_mb": round((size_bytes / max(total, 1)) / (1024 * 1024), 2),
+    }
+
+
 def list_event_photo_items(session: Session, *, event_id: uuid.UUID) -> list[PhotographerPhotoListItem]:
     photos = (
         session.execute(
@@ -165,145 +253,10 @@ def list_event_photo_items(session: Session, *, event_id: uuid.UUID) -> list[Pho
             PhotographerPhotoListItem(
                 photo=photo,
                 latest_job=photo.jobs[0] if photo.jobs else None,
-                photo_url=safe_photo_access_url(photo.original_object_key),
+                photo_url=safe_photo_preview_url(photo),
             )
         )
     return items
-
-
-def list_user_photo_items(session: Session) -> list[UserPhotoListItem]:
-    photos = (
-        session.execute(
-            select(Photo)
-            .options(
-                selectinload(Photo.event),
-                selectinload(Photo.detections),
-            )
-            .order_by(Photo.created_at.desc())
-        )
-        .scalars()
-        .all()
-    )
-
-    return [UserPhotoListItem(photo=photo, photo_url=safe_photo_access_url(photo.original_object_key)) for photo in photos]
-
-
-def search_event_photo_items(
-    session: Session,
-    *,
-    event: Event,
-    search_term: str,
-) -> tuple[list[UserSearchPhotoItem], list[Participant]]:
-    normalized_search_term = " ".join(search_term.strip().lower().split())
-    normalized_bib_token = normalize_match_token(search_term)
-    if not normalized_search_term and not normalized_bib_token:
-        return [], []
-
-    participants = (
-        session.execute(
-            select(Participant).where(Participant.event_id == event.id).order_by(Participant.full_name.asc())
-        )
-        .scalars()
-        .all()
-    )
-
-    matched_participants = [
-        participant
-        for participant in participants
-        if (
-            normalized_bib_token
-            and normalize_match_token(participant.bib_number) == normalized_bib_token
-        )
-        or (
-            normalized_search_term
-            and normalized_search_term in " ".join(participant.full_name.lower().split())
-        )
-    ]
-    matched_participant_ids = [participant.id for participant in matched_participants]
-    photo_items_by_id: dict[uuid.UUID, UserSearchPhotoItem] = {}
-
-    if matched_participant_ids:
-        matched_photos = (
-            session.execute(
-                select(Photo)
-                .join(PhotoParticipantMatch, PhotoParticipantMatch.photo_id == Photo.id)
-                .where(
-                    Photo.event_id == event.id,
-                    PhotoParticipantMatch.participant_id.in_(matched_participant_ids),
-                )
-                .options(
-                    selectinload(Photo.matches).selectinload(PhotoParticipantMatch.participant),
-                    selectinload(Photo.detections),
-                    selectinload(Photo.face_detections),
-                    selectinload(Photo.face_matches).selectinload(FaceParticipantMatch.participant),
-                )
-                .distinct()
-                .order_by(Photo.created_at.desc())
-            )
-            .scalars()
-            .all()
-        )
-
-        for photo in matched_photos:
-            photo_items_by_id[photo.id] = UserSearchPhotoItem(
-                photo=photo,
-                photo_url=safe_photo_access_url(photo.original_object_key),
-                matched_participants=[
-                    match.participant
-                    for match in photo.matches
-                    if match.participant_id in matched_participant_ids and match.participant is not None
-                ],
-                direct_match_values=[],
-                evidence_labels=build_photo_evidence_labels(photo, matched_participant_ids=matched_participant_ids),
-            )
-
-    if normalized_bib_token:
-        direct_match_photos = (
-            session.execute(
-                select(Photo)
-                .join(PhotoTextDetection, PhotoTextDetection.photo_id == Photo.id)
-                .where(
-                    Photo.event_id == event.id,
-                    PhotoTextDetection.normalized_text.contains(normalized_bib_token),
-                )
-                .options(
-                    selectinload(Photo.matches).selectinload(PhotoParticipantMatch.participant),
-                    selectinload(Photo.detections),
-                    selectinload(Photo.face_detections),
-                    selectinload(Photo.face_matches).selectinload(FaceParticipantMatch.participant),
-                )
-                .distinct()
-                .order_by(Photo.created_at.desc())
-            )
-            .scalars()
-            .all()
-        )
-
-        for photo in direct_match_photos:
-            direct_match_values = [
-                detection.detected_text
-                for detection in photo.detections
-                if normalized_bib_token in normalize_match_token(detection.detected_text)
-            ]
-            existing_item = photo_items_by_id.get(photo.id)
-            if existing_item is not None:
-                existing_item.direct_match_values = direct_match_values
-                existing_item.evidence_labels = build_photo_evidence_labels(photo, matched_participant_ids=matched_participant_ids)
-                continue
-            photo_items_by_id[photo.id] = UserSearchPhotoItem(
-                photo=photo,
-                photo_url=safe_photo_access_url(photo.original_object_key),
-                matched_participants=[],
-                direct_match_values=direct_match_values,
-                evidence_labels=build_photo_evidence_labels(photo, matched_participant_ids=matched_participant_ids),
-            )
-
-    items = sorted(
-        photo_items_by_id.values(),
-        key=lambda item: item.photo.created_at,
-        reverse=True,
-    )
-    return items, matched_participants
 
 
 def list_face_search_photo_items(
@@ -333,33 +286,36 @@ def list_face_search_photo_items(
     if participant is None:
         return search_session, list_legacy_face_search_photo_items(session, event=event, search_session=search_session)
 
-    result_rows = (
-        session.execute(
-            select(FaceSearchResult)
-            .where(FaceSearchResult.search_session_id == search_session.id, FaceSearchResult.event_id == event.id)
-            .options(
-                selectinload(FaceSearchResult.photo).selectinload(Photo.matches).selectinload(PhotoParticipantMatch.participant),
-                selectinload(FaceSearchResult.photo).selectinload(Photo.detections),
-                selectinload(FaceSearchResult.photo).selectinload(Photo.face_detections),
-                selectinload(FaceSearchResult.photo).selectinload(Photo.face_matches).selectinload(FaceParticipantMatch.participant),
-            )
-            .order_by(FaceSearchResult.similarity_score.desc(), FaceSearchResult.created_at.desc())
-        )
-        .scalars()
-        .unique()
-        .all()
-    )
+    is_bib_only_session = len(search_session.images) == 0
+    score_rows = session.execute(
+        select(FaceSearchResult.photo_id, func.max(FaceSearchResult.similarity_score).label("best_score"))
+        .where(FaceSearchResult.search_session_id == search_session.id, FaceSearchResult.event_id == event.id)
+        .group_by(FaceSearchResult.photo_id)
+        .order_by(func.max(FaceSearchResult.similarity_score).desc())
+        .limit(settings.max_search_results)
+    ).all()
+    best_face_score_by_photo = {photo_id: float(score) for photo_id, score in score_rows}
 
-    best_face_score_by_photo: dict[uuid.UUID, float] = {}
-    for result in result_rows:
-        existing = best_face_score_by_photo.get(result.photo_id)
-        if existing is None or result.similarity_score > existing:
-            best_face_score_by_photo[result.photo_id] = result.similarity_score
+    ocr_photo_ids = list(
+        session.execute(
+            select(PhotoParticipantMatch.photo_id)
+            .where(
+                PhotoParticipantMatch.event_id == event.id,
+                PhotoParticipantMatch.participant_id == participant.id,
+                PhotoParticipantMatch.match_source.in_(("ocr", "ocr+face")),
+            )
+            .order_by(PhotoParticipantMatch.created_at.desc())
+            .limit(settings.max_search_results)
+        ).scalars()
+    )
+    candidate_photo_ids = list(dict.fromkeys([*best_face_score_by_photo, *ocr_photo_ids]))[: settings.max_search_results]
+    if not candidate_photo_ids:
+        return search_session, []
 
     photos = (
         session.execute(
             select(Photo)
-            .where(Photo.event_id == event.id)
+            .where(Photo.event_id == event.id, Photo.id.in_(candidate_photo_ids))
             .options(
                 selectinload(Photo.matches).selectinload(PhotoParticipantMatch.participant),
                 selectinload(Photo.detections),
@@ -377,23 +333,32 @@ def list_face_search_photo_items(
     for photo in photos:
         face_score = best_face_score_by_photo.get(photo.id)
         face_strength = classify_face_score(face_score)
-        bib_evidence = score_bib_evidence(photo.detections, participant.bib_number)
-        if not should_accept_hybrid_result(face_strength=face_strength, bib_strength=bib_evidence.strength):
-            continue
+        if is_bib_only_session:
+            exact_bib_values = exact_bib_match_values(photo.detections, participant.bib_number)
+            bib_strength = "strong" if exact_bib_values else "none"
+            if face_strength != "strong" and bib_strength != "strong":
+                continue
+            bib_values = exact_bib_values
+        else:
+            bib_evidence = score_bib_evidence(photo.detections, participant.bib_number)
+            if not should_accept_hybrid_result(face_strength=face_strength, bib_strength=bib_evidence.strength):
+                continue
+            bib_strength = bib_evidence.strength
+            bib_values = bib_evidence.matched_values
 
         labels = build_hybrid_evidence_labels(
             face_score=face_score,
             face_strength=face_strength,
-            bib_strength=bib_evidence.strength,
-            bib_values=bib_evidence.matched_values,
+            bib_strength=bib_strength,
+            bib_values=bib_values,
         )
         labels.extend(build_photo_evidence_labels(photo, matched_participant_ids=[participant.id]))
         items.append(
             UserSearchPhotoItem(
                 photo=photo,
-                photo_url=safe_photo_access_url(photo.original_object_key),
+                photo_url=safe_photo_preview_url(photo),
                 matched_participants=[participant],
-                direct_match_values=list(bib_evidence.matched_values),
+                direct_match_values=list(bib_values),
                 evidence_labels=labels,
             )
         )
@@ -401,7 +366,13 @@ def list_face_search_photo_items(
     items.sort(
         key=lambda item: (
             best_face_score_by_photo.get(item.photo.id, 0.0),
-            1 if score_bib_evidence(item.photo.detections, participant.bib_number).strength == "strong" else 0,
+            1
+            if (
+                exact_bib_match_values(item.photo.detections, participant.bib_number)
+                if is_bib_only_session
+                else score_bib_evidence(item.photo.detections, participant.bib_number).strength == "strong"
+            )
+            else 0,
             item.photo.created_at,
         ),
         reverse=True,
@@ -426,6 +397,7 @@ def list_legacy_face_search_photo_items(
                 selectinload(FaceSearchResult.photo).selectinload(Photo.face_matches).selectinload(FaceParticipantMatch.participant),
             )
             .order_by(FaceSearchResult.similarity_score.desc(), FaceSearchResult.created_at.desc())
+            .limit(settings.max_search_results)
         )
         .scalars()
         .unique()
@@ -446,7 +418,7 @@ def list_legacy_face_search_photo_items(
         items.append(
             UserSearchPhotoItem(
                 photo=photo,
-                photo_url=safe_photo_access_url(photo.original_object_key),
+                photo_url=safe_photo_preview_url(photo),
                 matched_participants=[],
                 direct_match_values=[],
                 evidence_labels=labels,
@@ -543,6 +515,11 @@ def safe_photo_access_url(object_key: str) -> str | None:
         return None
 
 
+def safe_photo_preview_url(photo: Photo) -> str | None:
+    object_key = photo.thumbnail_object_key or photo.original_object_key
+    return safe_photo_access_url(object_key)
+
+
 def ingest_photo_upload(
     session: Session,
     *,
@@ -550,53 +527,105 @@ def ingest_photo_upload(
     file_name: str,
     content_type: str,
     content: bytes,
+    idempotency_key: str | None = None,
 ) -> UploadedPhotoResult:
     normalized_file_name = file_name.strip()
     if not normalized_file_name:
         return UploadedPhotoResult(file_name="Unnamed file", photo=None, success=False, message="Missing file name.")
 
     try:
-        normalized_content_type = validate_image_upload(
+        validate_image_upload(
             file_name=normalized_file_name,
             content_type=content_type,
             file_size=len(content),
         )
+        image = validate_image_bytes(
+            content,
+            file_name=normalized_file_name,
+            declared_content_type=content_type,
+            max_bytes=settings.max_photo_upload_bytes,
+        )
+        normalized_content_type = image.content_type
     except ValueError as exc:
         return UploadedPhotoResult(file_name=normalized_file_name, photo=None, success=False, message=str(exc))
 
+    normalized_idempotency_key = (idempotency_key or "").strip()[:128] or None
+    existing_filters = [Photo.event_id == event.id]
+    if normalized_idempotency_key:
+        existing_filters.append(Photo.idempotency_key == normalized_idempotency_key)
+    else:
+        existing_filters.append(Photo.checksum_sha256 == image.sha256)
+    existing = session.execute(select(Photo).where(*existing_filters)).scalar_one_or_none()
+    if existing is not None:
+        return UploadedPhotoResult(
+            file_name=normalized_file_name,
+            photo=existing,
+            success=True,
+            message="This photo was already accepted; the existing upload was reused.",
+        )
+
+    backlog = session.execute(
+        select(func.count(PhotoJob.id)).where(PhotoJob.status.in_(("queued", "processing")))
+    ).scalar_one()
+    if backlog >= settings.max_photo_job_backlog:
+        return UploadedPhotoResult(
+            file_name=normalized_file_name,
+            photo=None,
+            success=False,
+            message="The processing queue is currently full. Please retry later.",
+        )
+
     photo_id = uuid.uuid4()
     object_key = build_original_object_key(event_id=event.id, photo_id=photo_id, file_name=normalized_file_name)
+    thumbnail_object_key = build_thumbnail_object_key(event_id=event.id, photo_id=photo_id, file_name=normalized_file_name)
+    try:
+        thumbnail_bytes = create_photo_thumbnail(content=content)
+        upload_original_photo(content=content, object_key=object_key, content_type=normalized_content_type)
+        upload_thumbnail_photo(content=thumbnail_bytes, object_key=thumbnail_object_key)
+    except Exception:  # noqa: BLE001
+        logger.exception("Photo object upload failed", extra={"object_key": object_key})
+        for uploaded_key in (thumbnail_object_key, object_key):
+            try:
+                delete_object(object_key=uploaded_key)
+            except Exception:  # noqa: BLE001
+                logger.exception("Photo upload compensation failed", extra={"object_key": uploaded_key})
+        return UploadedPhotoResult(
+            file_name=normalized_file_name,
+            photo=None,
+            success=False,
+            message="The photo could not be stored. Please retry later.",
+        )
+
     photo = Photo(
         id=photo_id,
         event_id=event.id,
         original_object_key=object_key,
-        thumbnail_object_key=None,
+        thumbnail_object_key=thumbnail_object_key,
         file_name=normalized_file_name,
         content_type=normalized_content_type,
         file_size=len(content),
-        status="uploaded",
+        status="processing",
+        checksum_sha256=image.sha256,
+        idempotency_key=normalized_idempotency_key,
     )
     ocr_job = PhotoJob(
         photo_id=photo_id,
         job_type="ocr",
         status="queued",
         attempt_count=0,
+        max_attempts=settings.worker_max_attempts,
     )
     face_job = PhotoJob(
         photo_id=photo_id,
         job_type="face_photo_scan",
         status="queued",
         attempt_count=0,
+        max_attempts=settings.worker_max_attempts,
     )
-    session.add(photo)
-    session.add(ocr_job)
-    session.add(face_job)
-    session.commit()
-    session.refresh(photo)
-
     try:
-        upload_original_photo(content=content, object_key=object_key, content_type=normalized_content_type)
-        photo.status = "processing"
+        session.add(photo)
+        session.add(ocr_job)
+        session.add(face_job)
         session.commit()
         session.refresh(photo)
         return UploadedPhotoResult(
@@ -605,15 +634,19 @@ def ingest_photo_upload(
             success=True,
             message="Uploaded and queued for OCR and face recognition.",
         )
-    except Exception as exc:  # noqa: BLE001
-        mark_photo_job_failed(session, photo=photo, job=ocr_job, error_message=str(exc))
-        mark_photo_job_failed(session, photo=photo, job=face_job, error_message=str(exc))
-        session.refresh(photo)
+    except Exception:  # noqa: BLE001
+        session.rollback()
+        logger.exception("Photo database publish failed")
+        for uploaded_key in (thumbnail_object_key, object_key):
+            try:
+                delete_object(object_key=uploaded_key)
+            except Exception:  # noqa: BLE001
+                logger.exception("Photo database compensation failed", extra={"object_key": uploaded_key})
         return UploadedPhotoResult(
             file_name=normalized_file_name,
-            photo=photo,
+            photo=None,
             success=False,
-            message=str(exc),
+            message="The photo could not be queued. Please retry later.",
         )
 
 
@@ -652,46 +685,67 @@ def build_original_object_key(*, event_id: uuid.UUID, photo_id: uuid.UUID, file_
     return f"events/{event_id}/originals/{photo_id}-{safe_base_name}{extension}"
 
 
+def build_thumbnail_object_key(*, event_id: uuid.UUID, photo_id: uuid.UUID, file_name: str) -> str:
+    safe_base_name = re.sub(r"[^a-zA-Z0-9._-]+", "-", Path(file_name).stem).strip("-") or "photo"
+    return f"events/{event_id}/thumbnails/{photo_id}-{safe_base_name}.jpg"
+
+
+def create_photo_thumbnail(*, content: bytes) -> bytes:
+    from PIL import Image, ImageOps
+
+    max_edge = max(128, int(settings.photo_thumbnail_max_edge))
+    quality = min(95, max(40, int(settings.photo_thumbnail_quality)))
+    with Image.open(io.BytesIO(content)) as image:
+        image = ImageOps.exif_transpose(image)
+        image.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+
+        if image.mode in {"RGBA", "LA"} or (image.mode == "P" and "transparency" in image.info):
+            alpha_source = image.convert("RGBA")
+            background = Image.new("RGB", alpha_source.size, (255, 255, 255))
+            background.paste(alpha_source, mask=alpha_source.getchannel("A"))
+            image = background
+        else:
+            image = image.convert("RGB")
+
+        output = io.BytesIO()
+        image.save(output, format="JPEG", quality=quality, optimize=True, progressive=True)
+        return output.getvalue()
+
+
 def upload_original_photo(*, content: bytes, object_key: str, content_type: str) -> None:
-    r2_client = get_r2_client()
-    r2_client.put_object(
-        Bucket=settings.r2_bucket_name,
-        Key=object_key,
-        Body=content,
-        ContentType=content_type,
+    put_object(object_key=object_key, content=content, content_type=content_type)
+
+
+def upload_thumbnail_photo(*, content: bytes, object_key: str) -> None:
+    put_object(
+        object_key=object_key,
+        content=content,
+        content_type="image/jpeg",
+        cache_control="private, max-age=31536000, immutable",
     )
 
 
-def generate_photo_access_url(object_key: str) -> str | None:
+def generate_photo_access_url(object_key: str, *, download_name: str | None = None) -> str | None:
     if not is_r2_configured():
         return None
-
-    r2_client = get_r2_client()
-    return r2_client.generate_presigned_url(
-        "get_object",
-        Params={"Bucket": settings.r2_bucket_name, "Key": object_key},
-        ExpiresIn=settings.r2_presigned_url_ttl_seconds,
-    )
+    return generate_download_url(object_key=object_key, download_name=download_name)
 
 
 def download_photo_bytes(object_key: str) -> bytes:
     if not is_r2_configured():
         raise RuntimeError("R2 storage is not configured. Downloads are unavailable.")
 
-    response = get_r2_client().get_object(
-        Bucket=settings.r2_bucket_name,
-        Key=object_key,
-    )
-    return response["Body"].read()
+    body, _length, _content_type = get_object_body(object_key=object_key)
+    return body.read()
 
 
 def delete_photo(session: Session, *, photo: Photo) -> None:
     cleanup_photo_identity_data(session, photo_ids=[photo.id])
-    delete_object_if_possible(photo.original_object_key)
-    if photo.thumbnail_object_key:
-        delete_object_if_possible(photo.thumbnail_object_key)
+    enqueue_object_deletion(session, photo.original_object_key)
+    enqueue_object_deletion(session, photo.thumbnail_object_key)
     session.delete(photo)
     session.commit()
+    process_object_deletions(session, limit=2)
 
 
 def delete_all_event_photos(session: Session, *, event: Event) -> int:
@@ -706,13 +760,13 @@ def delete_all_event_photos(session: Session, *, event: Event) -> int:
     cleanup_photo_identity_data(session, photo_ids=[photo.id for photo in photos])
     deleted_count = 0
     for photo in photos:
-        delete_object_if_possible(photo.original_object_key)
-        if photo.thumbnail_object_key:
-            delete_object_if_possible(photo.thumbnail_object_key)
+        enqueue_object_deletion(session, photo.original_object_key)
+        enqueue_object_deletion(session, photo.thumbnail_object_key)
         session.delete(photo)
         deleted_count += 1
 
     session.commit()
+    process_object_deletions(session, limit=min(deleted_count * 2, settings.deletion_retry_batch_size))
     return deleted_count
 
 
@@ -736,37 +790,6 @@ def cleanup_photo_identity_data(session: Session, *, photo_ids: Iterable[uuid.UU
     session.query(PhotoTextDetection).filter(PhotoTextDetection.photo_id.in_(ids)).delete(synchronize_session=False)
     session.query(PhotoFaceDetection).filter(PhotoFaceDetection.photo_id.in_(ids)).delete(synchronize_session=False)
     session.query(PhotoJob).filter(PhotoJob.photo_id.in_(ids)).delete(synchronize_session=False)
-
-
-def process_photo_pipeline(session: Session, *, photo: Photo, job: PhotoJob, image_bytes: bytes) -> None:
-    job.status = "processing"
-    job.attempt_count += 1
-    job.error_message = None
-    photo.status = "processing"
-    session.commit()
-
-    ocr_result = run_google_ocr(image_bytes=image_bytes)
-    stored_detections = [
-        PhotoTextDetection(
-            photo_id=photo.id,
-            photo_job_id=job.id,
-            detected_text=detection.detected_text,
-            normalized_text=detection.normalized_text,
-            confidence=detection.confidence,
-            bounding_box_json=detection.bounding_box_json,
-        )
-        for detection in ocr_result.detections
-    ]
-    session.add_all(stored_detections)
-    session.commit()
-
-    job.raw_response_json = ocr_result.raw_response_json
-    create_participant_matches(session, photo=photo, detections=stored_detections)
-
-    job.status = "completed"
-    job.finished_at = utc_now()
-    photo.status = "ready"
-    session.commit()
 
 
 def rebuild_event_photo_matches(session: Session, *, event: Event) -> int:
@@ -866,191 +889,12 @@ def extract_match_candidates(value: str) -> list[str]:
 
 
 def normalize_match_token(value: str) -> str:
-    return re.sub(r"[^A-Z0-9]+", "", value.upper())
-
-
-def normalize_detected_text(value: str) -> str:
-    return re.sub(r"\s+", " ", value).strip().upper()
-
-
-def run_google_ocr(*, image_bytes: bytes) -> OCRResult:
-    if not settings.google_application_credentials:
-        raise RuntimeError("Google OCR is not configured. Set GOOGLE_APPLICATION_CREDENTIALS for the backend.")
-
-    try:
-        from google.cloud import vision
-        from google.protobuf.json_format import MessageToDict
-    except ImportError as exc:  # pragma: no cover - handled at runtime
-        raise RuntimeError("Google OCR dependency is missing. Install google-cloud-vision.") from exc
-
-    client = vision.ImageAnnotatorClient()
-    image = vision.Image(content=image_bytes)
-    response = client.document_text_detection(image=image)
-    if response.error.message:
-        raise RuntimeError(f"Google OCR failed: {response.error.message}")
-
-    return OCRResult(
-        detections=extract_google_ocr_detections(response),
-        raw_response_json=MessageToDict(response._pb, preserving_proto_field_name=True),
-    )
-
-
-def extract_google_ocr_detections(response) -> list[OCRTextDetectionResult]:
-    detections: list[OCRTextDetectionResult] = []
-    seen_keys: set[tuple[str, tuple[tuple[int, int], ...]]] = set()
-
-    full_text_annotation = getattr(response, "full_text_annotation", None)
-    if full_text_annotation and full_text_annotation.pages:
-        for page_index, page in enumerate(full_text_annotation.pages):
-            for block_index, block in enumerate(page.blocks):
-                for paragraph_index, paragraph in enumerate(block.paragraphs):
-                    for word_index, word in enumerate(paragraph.words):
-                        detected_text = "".join(symbol.text for symbol in word.symbols).strip()
-                        normalized_text = normalize_detected_text(detected_text)
-                        if not normalized_text:
-                            continue
-
-                        box_json = bounding_poly_to_json(
-                            word.bounding_box,
-                            source="word",
-                            page_index=page_index,
-                            block_index=block_index,
-                            paragraph_index=paragraph_index,
-                            word_index=word_index,
-                        )
-                        dedupe_key = (normalized_text, vertices_key_from_box(box_json))
-                        if dedupe_key in seen_keys:
-                            continue
-                        seen_keys.add(dedupe_key)
-
-                        detections.append(
-                            OCRTextDetectionResult(
-                                detected_text=detected_text,
-                                normalized_text=normalized_text,
-                                confidence=float(word.confidence) if getattr(word, "confidence", None) is not None else None,
-                                bounding_box_json=box_json,
-                            )
-                        )
-
-    if detections:
-        return sort_ocr_detections(detections)
-
-    annotations = list(getattr(response, "text_annotations", []) or [])
-    for annotation_index, annotation in enumerate(annotations[1:], start=1):
-        detected_text = annotation.description.strip()
-        normalized_text = normalize_detected_text(detected_text)
-        if not normalized_text:
-            continue
-
-        box_json = bounding_poly_to_json(
-            annotation.bounding_poly,
-            source="text_annotation",
-            annotation_index=annotation_index,
-        )
-        dedupe_key = (normalized_text, vertices_key_from_box(box_json))
-        if dedupe_key in seen_keys:
-            continue
-        seen_keys.add(dedupe_key)
-
-        detections.append(
-            OCRTextDetectionResult(
-                detected_text=detected_text,
-                normalized_text=normalized_text,
-                confidence=None,
-                bounding_box_json=box_json,
-            )
-        )
-
-    return sort_ocr_detections(detections)
-
-
-def bounding_poly_to_json(bounding_poly, **metadata) -> dict | None:
-    if not bounding_poly or not getattr(bounding_poly, "vertices", None):
-        return metadata or None
-
-    vertices = [
-        {"x": int(getattr(vertex, "x", 0) or 0), "y": int(getattr(vertex, "y", 0) or 0)}
-        for vertex in bounding_poly.vertices
-    ]
-    xs = [vertex["x"] for vertex in vertices]
-    ys = [vertex["y"] for vertex in vertices]
-    payload = {
-        "vertices": vertices,
-        "left": min(xs) if xs else 0,
-        "top": min(ys) if ys else 0,
-        "right": max(xs) if xs else 0,
-        "bottom": max(ys) if ys else 0,
-        "width": (max(xs) - min(xs)) if xs else 0,
-        "height": (max(ys) - min(ys)) if ys else 0,
-    }
-    payload.update(metadata)
-    return payload
-
-
-def vertices_key_from_box(box_json: dict | None) -> tuple[tuple[int, int], ...]:
-    if not box_json:
-        return ()
-    return tuple(
-        (int(vertex.get("x", 0)), int(vertex.get("y", 0)))
-        for vertex in box_json.get("vertices", [])
-    )
-
-
-def sort_ocr_detections(detections: list[OCRTextDetectionResult]) -> list[OCRTextDetectionResult]:
-    return sorted(
-        detections,
-        key=lambda detection: (
-            int((detection.bounding_box_json or {}).get("top", 0)),
-            int((detection.bounding_box_json or {}).get("left", 0)),
-            detection.detected_text,
-        ),
-    )
-
-
-def mark_photo_job_failed(session: Session, *, photo: Photo, job: PhotoJob, error_message: str) -> None:
-    job.status = "failed"
-    job.finished_at = utc_now()
-    job.error_message = error_message[:2000]
-    photo.status = "failed"
-    session.commit()
+    return normalize_bib_lookup(value)
 
 
 def is_r2_configured() -> bool:
-    return all(
-        [
-            settings.r2_bucket_name,
-            settings.r2_endpoint,
-            settings.r2_access_key_id,
-            settings.r2_secret_access_key,
-        ]
-    )
+    return is_object_storage_configured()
 
 
 def get_r2_client():
-    if not is_r2_configured():
-        raise RuntimeError("R2 storage is not configured. Set the CLOUDFLARE_R2_* environment variables.")
-
-    try:
-        import boto3
-    except ImportError as exc:  # pragma: no cover - handled at runtime
-        raise RuntimeError("R2 dependency is missing. Install boto3.") from exc
-
-    return boto3.client(
-        "s3",
-        endpoint_url=settings.r2_endpoint,
-        aws_access_key_id=settings.r2_access_key_id,
-        aws_secret_access_key=settings.r2_secret_access_key,
-        region_name="auto",
-    )
-
-
-def delete_object_if_possible(object_key: str) -> None:
-    if not object_key or not is_r2_configured():
-        return
-
-    try:
-        r2_client = get_r2_client()
-        r2_client.delete_object(Bucket=settings.r2_bucket_name, Key=object_key)
-    except Exception:  # noqa: BLE001
-        # Best effort cleanup. The DB delete should still succeed even if object removal is unavailable.
-        return
+    return get_object_storage_client()

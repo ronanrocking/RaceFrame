@@ -1,0 +1,13 @@
+[Unit]
+Description=RaceFrame bounded data-lifecycle maintenance
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/raceframe/raceframe-backend
+ExecStart=/usr/bin/docker compose --profile maintenance run --rm maintenance
+TimeoutStartSec=10min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

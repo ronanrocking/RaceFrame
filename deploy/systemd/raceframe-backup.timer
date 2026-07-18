@@ -1,0 +1,11 @@
+[Unit]
+Description=Create a daily encrypted RaceFrame backup
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 UTC
+AccuracySec=5min
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

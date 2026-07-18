@@ -1,18 +1,75 @@
+x-raceframe-service: &raceframe-service
+  image: ${RACEFRAME_BACKEND_IMAGE:?Set RACEFRAME_BACKEND_IMAGE to an immutable image digest}
+  user: "10001:10001"
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=128m,mode=1777
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  init: true
+  pids_limit: 256
+  mem_limit: 1g
+  mem_reservation: 384m
+  cpus: 1.0
+  ulimits:
+    nofile:
+      soft: 16384
+      hard: 16384
+  networks:
+    - raceframe-internal
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "5"
+
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *raceframe-service
     container_name: raceframe-backend
-    restart: unless-stopped
     env_file:
       - .env
-    volumes:
-      - ./secrets:/app/secrets:ro
+    restart: unless-stopped
+    stop_grace_period: 30s
     ports:
       - "127.0.0.1:8008:8000"
-    networks:
-      - raceframe-internal
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/livez', timeout=2).read()
+      interval: 30s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
+
+  migrate:
+    <<: *raceframe-service
+    profiles:
+      - migration
+    env_file:
+      - .migration.env
+    restart: "no"
+    command:
+      - alembic
+      - upgrade
+      - head
+
+  maintenance:
+    <<: *raceframe-service
+    profiles:
+      - maintenance
+    env_file:
+      - .env
+    restart: "no"
+    command:
+      - python
+      - -m
+      - app.maintenance
+      - run
 
 networks:
   raceframe-internal:

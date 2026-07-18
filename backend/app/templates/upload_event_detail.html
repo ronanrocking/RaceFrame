@@ -33,9 +33,15 @@
       <span>Slug: {{ event.slug }}</span>
       <span>Date: {{ event.event_date if event.event_date else "Not set" }}</span>
       <span>Location: {{ event.location if event.location else "Not set" }}</span>
+      <span>Photos: {{ photo_stats.total }}</span>
+      <span>Ready: {{ photo_stats.ready }}</span>
+      <span>Processing: {{ photo_stats.processing }}</span>
+      <span>Failed: {{ photo_stats.failed }}</span>
+      <span>Thumbnails: {{ photo_stats.thumbnails }}</span>
     </div>
 
-    <form method="post" action="/upload/events/{{ event.id }}" enctype="multipart/form-data" class="admin-form upload-photo-form" data-upload-form data-concurrency="4">
+    <form method="post" action="/upload/events/{{ event.id }}" enctype="multipart/form-data" class="admin-form upload-photo-form" data-upload-form data-concurrency="2" data-max-attempts="3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <label class="admin-field upload-file-field">
         <span class="admin-field-label">Photo Files</span>
         <input data-upload-input type="file" name="photo_files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple required />
@@ -49,7 +55,12 @@
         <p data-batch-message>Select images to start building the queue.</p>
       </div>
 
-      <section class="upload-queue" data-upload-queue hidden aria-live="polite">
+      <div class="upload-reliable-actions" data-upload-actions hidden>
+        <button class="admin-button admin-button-secondary" type="button" data-pause-upload>Pause</button>
+        <button class="admin-button admin-button-secondary" type="button" data-retry-failed hidden>Retry Failed</button>
+      </div>
+
+      <section class="upload-queue upload-queue-summary" data-upload-queue hidden aria-live="polite">
         <div class="upload-queue-header">
           <div>
             <p class="admin-section-label">Upload Queue</p>
@@ -57,13 +68,51 @@
           </div>
           <span class="admin-panel-meta" data-batch-meta>Waiting to start</span>
         </div>
-        <div class="upload-queue-list" data-upload-list></div>
+        <div class="upload-overall-progress" aria-hidden="true">
+          <span data-overall-progress></span>
+        </div>
+        <div class="upload-progress-stat-grid">
+          <div class="upload-progress-stat">
+            <span class="admin-field-label">Total</span>
+            <strong data-stat-total>0</strong>
+          </div>
+          <div class="upload-progress-stat">
+            <span class="admin-field-label">Queued</span>
+            <strong data-stat-queued>0</strong>
+          </div>
+          <div class="upload-progress-stat">
+            <span class="admin-field-label">Active</span>
+            <strong data-stat-active>0</strong>
+          </div>
+          <div class="upload-progress-stat">
+            <span class="admin-field-label">Completed</span>
+            <strong data-stat-completed>0</strong>
+          </div>
+          <div class="upload-progress-stat">
+            <span class="admin-field-label">Accepted</span>
+            <strong data-stat-ready>0</strong>
+          </div>
+          <div class="upload-progress-stat">
+            <span class="admin-field-label">Failed</span>
+            <strong data-stat-failed>0</strong>
+          </div>
+        </div>
+        <div class="upload-active-summary">
+          <div>
+            <p class="admin-field-label">Current Activity</p>
+            <p data-active-summary>No active uploads.</p>
+          </div>
+          <div data-failed-panel hidden>
+            <p class="admin-field-label">Failed</p>
+            <ul class="upload-failed-list" data-failed-list></ul>
+          </div>
+        </div>
       </section>
 
     </form>
   </section>
 
-  <script>
+  <script nonce="{{ csp_nonce }}">
     (() => {
       const form = document.querySelector("[data-upload-form]");
       if (!form) return;
@@ -74,20 +123,28 @@
       const batchMessage = form.querySelector("[data-batch-message]");
       const batchMeta = form.querySelector("[data-batch-meta]");
       const queue = form.querySelector("[data-upload-queue]");
-      const list = form.querySelector("[data-upload-list]");
-      const concurrency = Number.parseInt(form.dataset.concurrency || "4", 10);
+      const actions = form.querySelector("[data-upload-actions]");
+      const pauseButton = form.querySelector("[data-pause-upload]");
+      const retryButton = form.querySelector("[data-retry-failed]");
+      const activeSummary = form.querySelector("[data-active-summary]");
+      const failedPanel = form.querySelector("[data-failed-panel]");
+      const failedList = form.querySelector("[data-failed-list]");
+      const overallProgress = form.querySelector("[data-overall-progress]");
+      const statTotal = form.querySelector("[data-stat-total]");
+      const statQueued = form.querySelector("[data-stat-queued]");
+      const statActive = form.querySelector("[data-stat-active]");
+      const statCompleted = form.querySelector("[data-stat-completed]");
+      const statReady = form.querySelector("[data-stat-ready]");
+      const statFailed = form.querySelector("[data-stat-failed]");
+      const concurrency = Math.max(1, Number.parseInt(form.dataset.concurrency || "2", 10));
+      const maxAttempts = Math.max(1, Number.parseInt(form.dataset.maxAttempts || "3", 10));
+      const transientStatusCodes = new Set([408, 429, 500, 502, 503, 504]);
       const state = {
         items: [],
         active: 0,
         started: false,
-      };
-
-      const revokeUrls = () => {
-        state.items.forEach((item) => {
-          if (item.objectUrl) {
-            URL.revokeObjectURL(item.objectUrl);
-          }
-        });
+        paused: false,
+        renderScheduled: false,
       };
 
       const escapeHtml = (value) =>
@@ -111,62 +168,93 @@
         return `${size >= 10 || index === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[index]}`;
       };
 
-      const renderQueue = () => {
+      const counts = () => {
         const total = state.items.length;
-        const completed = state.items.filter((item) => item.status === "ready" || item.status === "failed").length;
+        const accepted = state.items.filter((item) => item.status === "accepted").length;
+        const failed = state.items.filter((item) => item.status === "failed").length;
         const uploading = state.items.filter((item) => item.status === "uploading").length;
         const processing = state.items.filter((item) => item.status === "processing").length;
-        const ready = state.items.filter((item) => item.status === "ready").length;
-        const failed = state.items.filter((item) => item.status === "failed").length;
+        const retrying = state.items.filter((item) => item.status === "retrying").length;
+        const queued = state.items.filter((item) => item.status === "queued").length;
+        const completed = accepted + failed;
+        const totalBytes = state.items.reduce((sum, item) => sum + item.file.size, 0);
+        const uploadedBytes = state.items.reduce((sum, item) => sum + (item.file.size * Math.min(100, Math.max(0, item.progress)) / 100), 0);
+        return { total, accepted, failed, uploading, processing, retrying, queued, completed, totalBytes, uploadedBytes };
+      };
 
-        summary.hidden = total === 0;
-        queue.hidden = total === 0;
-        batchCount.textContent = `${total} file${total === 1 ? "" : "s"} selected`;
+      const renderQueueNow = () => {
+        state.renderScheduled = false;
+        const current = counts();
+
+        summary.hidden = current.total === 0;
+        queue.hidden = current.total === 0;
+        actions.hidden = current.total === 0;
+        batchCount.textContent = `${current.total} file${current.total === 1 ? "" : "s"} selected`;
         batchMeta.textContent = state.started
-          ? `${completed}/${total} done | ${uploading} uploading | ${processing} processing`
+          ? `${current.completed}/${current.total} done | ${current.uploading + current.processing + current.retrying} active | ${current.queued} queued`
           : "Queued and ready";
 
         if (!state.started) {
-          batchMessage.textContent = total
-            ? `This batch will run up to ${concurrency} uploads at a time.`
+          batchMessage.textContent = current.total
+            ? `Reliable uploader is ready. It will run ${concurrency} upload${concurrency === 1 ? "" : "s"} at a time and retry temporary failures.`
             : "Select images to start building the queue.";
-        } else if (completed < total) {
-          batchMessage.textContent = `Ready ${ready}, failed ${failed}, ${uploading + processing} still in flight.`;
+        } else if (state.paused) {
+          batchMessage.textContent = `Paused. Accepted ${current.accepted}, failed ${current.failed}, ${current.queued} waiting.`;
+        } else if (current.completed < current.total) {
+          batchMessage.textContent = `Uploading steadily. Accepted ${current.accepted}, failed ${current.failed}, ${current.uploading + current.processing + current.retrying} in flight.`;
         } else {
-          batchMessage.textContent = `Batch finished. Ready ${ready}, failed ${failed}.`;
+          batchMessage.textContent = `Batch finished. Accepted ${current.accepted}, failed ${current.failed}.`;
         }
 
-        list.innerHTML = state.items.map((item) => `
-          <a class="upload-queue-card upload-queue-card-${item.status}" href="${escapeHtml(item.href)}" target="_blank" rel="noreferrer">
-            <div class="upload-queue-card-icon" aria-hidden="true"></div>
-            <strong>${escapeHtml(item.file.name)}</strong>
-            <span class="upload-queue-card-size">${formatBytes(item.file.size)}</span>
-            <span class="admin-status-pill upload-queue-status upload-queue-status-${item.status}">${escapeHtml(item.label)}</span>
-            <div class="upload-progress-track">
-              <span class="upload-progress-fill" style="width:${item.progress}%;"></span>
-            </div>
-            <p class="upload-queue-note">${escapeHtml(item.note)}</p>
-          </a>
-        `).join("");
+        const percent = current.totalBytes ? Math.round((current.uploadedBytes / current.totalBytes) * 100) : 0;
+        overallProgress.style.width = `${percent}%`;
+
+        const activeItems = state.items.filter((item) => ["uploading", "processing", "retrying"].includes(item.status));
+        const failedItems = state.items.filter((item) => item.status === "failed").slice(-20).reverse();
+
+        statTotal.textContent = current.total;
+        statQueued.textContent = current.queued;
+        statActive.textContent = current.uploading + current.processing + current.retrying;
+        statCompleted.textContent = current.completed;
+        statReady.textContent = current.accepted;
+        statFailed.textContent = current.failed;
+        activeSummary.textContent = activeItems.length
+          ? activeItems.map((item) => `${item.file.name} (${item.label.toLowerCase()}, ${item.progress}%)`).join(", ")
+          : `No active uploads. ${formatBytes(current.uploadedBytes)} of ${formatBytes(current.totalBytes)} sent.`;
+        failedPanel.hidden = failedItems.length === 0;
+        failedList.innerHTML = failedItems.map((item) => {
+          const attemptLabel = item.attempt > 1 ? `, ${item.attempt} attempts` : "";
+          return `<li><strong>${escapeHtml(item.file.name)}</strong><span>${escapeHtml(item.note)}${attemptLabel}</span></li>`;
+        }).join("");
+        retryButton.hidden = current.failed === 0 || state.started;
+        pauseButton.hidden = current.completed >= current.total;
+        pauseButton.textContent = state.paused ? "Resume" : "Pause";
+      };
+
+      const renderQueue = () => {
+        if (state.renderScheduled) return;
+        state.renderScheduled = true;
+        window.requestAnimationFrame(renderQueueNow);
       };
 
       const buildItems = () => {
-        revokeUrls();
         state.items = Array.from(input.files || []).map((file, index) => {
-          const objectUrl = URL.createObjectURL(file);
           return {
             id: `${file.name}-${file.size}-${index}`,
+            idempotencyKey: window.crypto && window.crypto.randomUUID
+              ? window.crypto.randomUUID()
+              : `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`,
             file,
-            objectUrl,
-            href: objectUrl,
             progress: 0,
             status: "queued",
             label: "Queued",
             note: "Waiting to start.",
+            attempt: 0,
           };
         });
         state.active = 0;
         state.started = false;
+        state.paused = false;
         renderQueue();
         if (state.items.length > 0) {
           state.started = true;
@@ -179,9 +267,15 @@
       const finishBatch = () => {
         input.disabled = false;
         state.started = false;
+        state.paused = false;
+        renderQueue();
       };
 
       const startNext = () => {
+        if (state.paused) {
+          renderQueue();
+          return;
+        }
         while (state.active < concurrency) {
           const nextItem = state.items.find((item) => item.status === "queued");
           if (!nextItem) break;
@@ -189,14 +283,44 @@
         }
 
         const allDone = state.items.length > 0
-          && state.items.every((item) => item.status === "ready" || item.status === "failed");
+          && state.items.every((item) => item.status === "accepted" || item.status === "failed");
         if (allDone) {
           finishBatch();
         }
       };
 
+      const shouldRetry = (item, statusCode) => item.attempt < maxAttempts && (statusCode === 0 || transientStatusCodes.has(statusCode));
+
+      const scheduleRetry = (item, reason, statusCode = 0) => {
+        if (!shouldRetry(item, statusCode)) {
+          item.progress = 100;
+          item.status = "failed";
+          item.label = "Failed";
+          item.note = reason;
+          renderQueue();
+          startNext();
+          return;
+        }
+
+        item.status = "retrying";
+        item.label = "Retrying";
+        item.progress = 0;
+        const delayMs = Math.min(30000, 1500 * (2 ** Math.max(0, item.attempt - 1)));
+        item.note = `${reason} Retrying in ${Math.round(delayMs / 1000)}s.`;
+        renderQueue();
+        window.setTimeout(() => {
+          if (item.status !== "retrying") return;
+          item.status = "queued";
+          item.label = "Queued";
+          item.note = "Waiting for retry slot.";
+          renderQueue();
+          startNext();
+        }, delayMs);
+      };
+
       const uploadItem = (item) => {
         state.active += 1;
+        item.attempt += 1;
         item.status = "uploading";
         item.label = "Uploading";
         item.note = "Sending file to the server.";
@@ -207,8 +331,11 @@
 
         const xhr = new XMLHttpRequest();
         xhr.open("POST", form.action);
+        xhr.timeout = 10 * 60 * 1000;
         xhr.setRequestHeader("Accept", "application/json");
         xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+        xhr.setRequestHeader("X-CSRF-Token", form.elements.csrf_token.value);
+        xhr.setRequestHeader("Idempotency-Key", item.idempotencyKey);
 
         xhr.upload.addEventListener("progress", (event) => {
           if (!event.lengthComputable) return;
@@ -234,14 +361,18 @@
           item.progress = 100;
 
           if (xhr.status >= 200 && xhr.status < 300 && result && result.success) {
-            item.status = "ready";
-            item.label = "Queued";
+            item.status = "accepted";
+            item.label = "Accepted";
             item.note = result.message || "Uploaded and queued.";
-            item.href = result.photo_url || item.objectUrl;
           } else {
+            const note = (result && (result.error_message || result.message)) || (response && response.message) || `Upload failed with HTTP ${xhr.status}.`;
+            if (shouldRetry(item, xhr.status)) {
+              scheduleRetry(item, note, xhr.status);
+              return;
+            }
             item.status = "failed";
             item.label = "Failed";
-            item.note = (result && (result.error_message || result.message)) || (response && response.message) || "Upload failed.";
+            item.note = note;
           }
 
           renderQueue();
@@ -250,12 +381,12 @@
 
         xhr.addEventListener("error", () => {
           state.active -= 1;
-          item.progress = 100;
-          item.status = "failed";
-          item.label = "Failed";
-          item.note = "Network error while uploading this file.";
-          renderQueue();
-          startNext();
+          scheduleRetry(item, "Network error while uploading this file.");
+        });
+
+        xhr.addEventListener("timeout", () => {
+          state.active -= 1;
+          scheduleRetry(item, "Upload timed out.");
         });
 
         xhr.send(formData);
@@ -263,7 +394,33 @@
 
       input.addEventListener("change", buildItems);
 
-      window.addEventListener("beforeunload", revokeUrls);
+      pauseButton.addEventListener("click", () => {
+        state.paused = !state.paused;
+        renderQueue();
+        if (!state.paused) startNext();
+      });
+
+      retryButton.addEventListener("click", () => {
+        state.items.forEach((item) => {
+          if (item.status !== "failed") return;
+          item.status = "queued";
+          item.label = "Queued";
+          item.note = "Waiting for retry slot.";
+          item.progress = 0;
+          item.attempt = 0;
+        });
+        state.started = true;
+        input.disabled = true;
+        renderQueue();
+        startNext();
+      });
+
+      window.addEventListener("beforeunload", (event) => {
+        const current = counts();
+        if (!state.started || current.completed >= current.total) return;
+        event.preventDefault();
+        event.returnValue = "";
+      });
     })();
   </script>
 {% endblock %}

@@ -1,0 +1,13 @@
+[Unit]
+Description=Create encrypted off-host RaceFrame PostgreSQL backup
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/raceframe/backup.env
+ExecStart=/usr/bin/bash %h/raceframe/scripts/backup-postgres.sh
+TimeoutStartSec=2h
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

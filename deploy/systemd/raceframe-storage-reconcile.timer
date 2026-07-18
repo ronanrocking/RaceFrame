@@ -1,0 +1,11 @@
+[Unit]
+Description=Dry-run RaceFrame storage reconciliation weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 03:45:00 UTC
+AccuracySec=15min
+Persistent=true
+RandomizedDelaySec=20min
+
+[Install]
+WantedBy=timers.target

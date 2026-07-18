@@ -1,17 +1,23 @@
 from __future__ import annotations
 
 import math
+import heapq
+import logging
 import re
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, selectinload
 
 from .config import settings
+from .storage import delete_object, put_object
+from .uploads import validate_image_bytes
 from .models import (
     FaceParticipantMatch,
     FaceSearchImage,
@@ -32,6 +38,9 @@ from .models import (
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+ASCII_TOKEN_PATTERN = re.compile(r"[A-Z0-9]+")
+ASCII_DIGIT_PATTERN = re.compile(r"[0-9]+")
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -111,17 +120,7 @@ def build_face_search_object_key(
 
 
 def upload_r2_object(*, content: bytes, object_key: str, content_type: str) -> None:
-    try:
-        from .photographer import get_r2_client
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("R2 helper is unavailable.") from exc
-
-    get_r2_client().put_object(
-        Bucket=settings.r2_bucket_name,
-        Key=object_key,
-        Body=content,
-        ContentType=content_type,
-    )
+    put_object(object_key=object_key, content=content, content_type=content_type)
 
 
 def ingest_participant_selfie_upload(
@@ -137,11 +136,18 @@ def ingest_participant_selfie_upload(
         return FaceSelfieUploadResult(file_name="Unnamed selfie", face_image=None, success=False, message="Missing file name.")
 
     try:
-        normalized_content_type = validate_selfie_upload(
+        validate_selfie_upload(
             file_name=normalized_file_name,
             content_type=content_type,
             file_size=len(content),
         )
+        image = validate_image_bytes(
+            content,
+            file_name=normalized_file_name,
+            declared_content_type=content_type,
+            max_bytes=settings.max_selfie_upload_bytes,
+        )
+        normalized_content_type = image.content_type
     except ValueError as exc:
         return FaceSelfieUploadResult(file_name=normalized_file_name, face_image=None, success=False, message=str(exc))
 
@@ -152,6 +158,17 @@ def ingest_participant_selfie_upload(
         face_image_id=face_image_id,
         file_name=normalized_file_name,
     )
+    try:
+        upload_r2_object(content=content, object_key=object_key, content_type=normalized_content_type)
+    except Exception:  # noqa: BLE001
+        logger.exception("Participant face image storage failed", extra={"object_key": object_key})
+        return FaceSelfieUploadResult(
+            file_name=normalized_file_name,
+            face_image=None,
+            success=False,
+            message="The selfie could not be stored. Please try again later.",
+        )
+
     face_image = ParticipantFaceImage(
         id=face_image_id,
         event_id=participant.event_id,
@@ -168,22 +185,26 @@ def ingest_participant_selfie_upload(
         face_image_id=face_image_id,
         status="queued",
         attempt_count=0,
+        max_attempts=settings.worker_max_attempts,
     )
-    session.add(face_image)
-    session.add(job)
-    session.commit()
-    session.refresh(face_image)
-
     try:
-        upload_r2_object(content=content, object_key=object_key, content_type=normalized_content_type)
-    except Exception as exc:  # noqa: BLE001
-        face_image.status = "failed"
-        face_image.error_message = str(exc)[:2000]
-        job.status = "failed"
-        job.error_message = str(exc)[:2000]
-        job.finished_at = utc_now()
+        session.add(face_image)
+        session.add(job)
         session.commit()
-        return FaceSelfieUploadResult(file_name=normalized_file_name, face_image=face_image, success=False, message=str(exc))
+        session.refresh(face_image)
+    except Exception:  # noqa: BLE001
+        session.rollback()
+        logger.exception("Participant face image database publish failed")
+        try:
+            delete_object(object_key=object_key)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to compensate participant face object", extra={"object_key": object_key})
+        return FaceSelfieUploadResult(
+            file_name=normalized_file_name,
+            face_image=None,
+            success=False,
+            message="The selfie could not be queued. Please try again later.",
+        )
 
     return FaceSelfieUploadResult(
         file_name=normalized_file_name,
@@ -213,12 +234,31 @@ def ingest_face_search_upload(
             message="Missing file name.",
         )
 
+    active_jobs = session.execute(
+        select(func.count(FaceSearchJob.id)).where(FaceSearchJob.status.in_(("queued", "processing")))
+    ).scalar_one()
+    if active_jobs >= settings.max_face_search_backlog:
+        return FaceSearchUploadResult(
+            file_name=normalized_file_name,
+            search_session=search_session,
+            search_image=None,
+            success=False,
+            message="The face-search queue is full. Please retry later.",
+        )
+
     try:
-        normalized_content_type = validate_selfie_upload(
+        validate_selfie_upload(
             file_name=normalized_file_name,
             content_type=content_type,
             file_size=len(content),
         )
+        image = validate_image_bytes(
+            content,
+            file_name=normalized_file_name,
+            declared_content_type=content_type,
+            max_bytes=settings.max_selfie_upload_bytes,
+        )
+        normalized_content_type = image.content_type
     except ValueError as exc:
         return FaceSearchUploadResult(
             file_name=normalized_file_name,
@@ -228,11 +268,13 @@ def ingest_face_search_upload(
             message=str(exc),
         )
 
-    if search_session is None:
+    created_session = search_session is None
+    if created_session:
         search_session = FaceSearchSession(
             event_id=event.id,
             participant_id=participant.id if participant is not None else None,
             status="queued",
+            expires_at=utc_now() + timedelta(hours=max(1, settings.biometric_retention_hours)),
         )
         session.add(search_session)
         session.flush()
@@ -244,6 +286,19 @@ def ingest_face_search_upload(
         search_image_id=search_image_id,
         file_name=normalized_file_name,
     )
+    try:
+        upload_r2_object(content=content, object_key=object_key, content_type=normalized_content_type)
+    except Exception:  # noqa: BLE001
+        session.rollback()
+        logger.exception("Temporary face search image storage failed", extra={"object_key": object_key})
+        return FaceSearchUploadResult(
+            file_name=normalized_file_name,
+            search_session=None if created_session else search_session,
+            search_image=None,
+            success=False,
+            message="The selfie could not be stored. Please try again later.",
+        )
+
     search_image = FaceSearchImage(
         id=search_image_id,
         event_id=event.id,
@@ -260,30 +315,27 @@ def ingest_face_search_upload(
         search_image_id=search_image_id,
         status="queued",
         attempt_count=0,
+        max_attempts=settings.worker_max_attempts,
     )
-    session.add(search_image)
-    session.add(job)
-    session.commit()
-    session.refresh(search_session)
-    session.refresh(search_image)
-
     try:
-        upload_r2_object(content=content, object_key=object_key, content_type=normalized_content_type)
-    except Exception as exc:  # noqa: BLE001
-        search_session.status = "failed"
-        search_session.error_message = str(exc)[:2000]
-        search_image.status = "failed"
-        search_image.error_message = str(exc)[:2000]
-        job.status = "failed"
-        job.error_message = str(exc)[:2000]
-        job.finished_at = utc_now()
+        session.add(search_image)
+        session.add(job)
         session.commit()
+        session.refresh(search_session)
+        session.refresh(search_image)
+    except Exception:  # noqa: BLE001
+        session.rollback()
+        logger.exception("Temporary face search database publish failed")
+        try:
+            delete_object(object_key=object_key)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to compensate face search object", extra={"object_key": object_key})
         return FaceSearchUploadResult(
             file_name=normalized_file_name,
-            search_session=search_session,
-            search_image=search_image,
+            search_session=None,
+            search_image=None,
             success=False,
-            message=str(exc),
+            message="The selfie could not be queued. Please try again later.",
         )
 
     return FaceSearchUploadResult(
@@ -326,61 +378,76 @@ def upsert_final_photo_participant_match(
     confidence: float | None,
 ) -> None:
     matched_value = clamp_match_value(matched_value)
-    existing = session.execute(
-        select(PhotoParticipantMatch).where(
-            PhotoParticipantMatch.photo_id == photo_id,
-            PhotoParticipantMatch.participant_id == participant_id,
+    table = PhotoParticipantMatch.__table__
+    insert_factory = sqlite_insert if session.get_bind().dialect.name == "sqlite" else postgresql_insert
+    statement = insert_factory(table).values(
+        event_id=event_id,
+        photo_id=photo_id,
+        participant_id=participant_id,
+        match_source=match_source,
+        matched_value=matched_value,
+        confidence=confidence,
+        status="auto_matched",
+    )
+    excluded = statement.excluded
+    merged_confidence = case(
+        (table.c.confidence.is_(None), excluded.confidence),
+        (excluded.confidence.is_(None), table.c.confidence),
+        (table.c.confidence >= excluded.confidence, table.c.confidence),
+        else_=excluded.confidence,
+    )
+    merged_source = case(
+        (table.c.match_source == excluded.match_source, table.c.match_source),
+        (table.c.match_source == "ocr+face", table.c.match_source),
+        else_="ocr+face",
+    )
+    merged_value = case(
+        (table.c.match_source == excluded.match_source, excluded.matched_value),
+        else_=func.substr(
+            table.c.matched_value + " | " + excluded.match_source + ":" + excluded.matched_value,
+            1,
+            255,
+        ),
+    )
+    session.execute(
+        statement.on_conflict_do_update(
+            index_elements=[table.c.photo_id, table.c.participant_id],
+            set_={
+                "match_source": merged_source,
+                "matched_value": merged_value,
+                "confidence": merged_confidence,
+                "status": "auto_matched",
+            },
         )
-    ).scalar_one_or_none()
-    if existing is None:
-        existing = pending_photo_participant_match(
-            session,
-            photo_id=photo_id,
-            participant_id=participant_id,
-        )
-
-    if existing is None:
-        match = PhotoParticipantMatch(
-            event_id=event_id,
-            photo_id=photo_id,
-            participant_id=participant_id,
-            match_source=match_source,
-            matched_value=matched_value,
-            confidence=confidence,
-            status="auto_matched",
-        )
-        session.add(match)
-        return
-
-    sources = {source.strip() for source in existing.match_source.split("+") if source.strip()}
-    sources.add(match_source)
-    existing.match_source = "+".join(source for source in ("ocr", "face") if source in sources)
-    if existing.match_source == match_source:
-        existing.matched_value = matched_value
-    elif match_source not in existing.matched_value:
-        existing.matched_value = clamp_match_value(f"{existing.matched_value} | {match_source}:{matched_value}")
-
-    if confidence is not None:
-        existing.confidence = max(existing.confidence or 0.0, confidence)
-
-
-def pending_photo_participant_match(
-    session: Session,
-    *,
-    photo_id: uuid.UUID,
-    participant_id: uuid.UUID,
-) -> PhotoParticipantMatch | None:
-    for pending in session.new:
-        if not isinstance(pending, PhotoParticipantMatch):
-            continue
-        if pending.photo_id == photo_id and pending.participant_id == participant_id:
-            return pending
-    return None
+    )
 
 
 def clamp_match_value(value: str) -> str:
     normalized = str(value or "").strip()
     return normalized[:255] if normalized else "matched"
+
+
+def compact_worker_diagnostics(raw_response_json: dict | None, **summary: object) -> dict:
+    """Retain operational metadata, not duplicate provider payloads or biometric data."""
+    allowed_keys = {
+        "provider",
+        "request_id",
+        "model_name",
+        "model_version",
+        "image_width",
+        "image_height",
+        "resized_width",
+        "resized_height",
+        "processing_ms",
+    }
+    compact: dict[str, object] = {}
+    if isinstance(raw_response_json, dict):
+        for key in allowed_keys:
+            value = raw_response_json.get(key)
+            if isinstance(value, (str, int, float, bool)) and len(str(value)) <= 255:
+                compact[key] = value
+    compact.update(summary)
+    return compact
 
 
 def complete_photo_ocr_job(
@@ -415,7 +482,7 @@ def complete_photo_ocr_job(
     create_ocr_participant_matches(session, photo=photo, detections=stored_detections)
 
     job.status = "completed"
-    job.raw_response_json = raw_response_json
+    job.raw_response_json = compact_worker_diagnostics(raw_response_json, detection_count=len(stored_detections))
     job.finished_at = utc_now()
     session.flush()
     mark_photo_ready_if_jobs_done(session, photo=photo)
@@ -454,7 +521,7 @@ def complete_photo_face_job(
     session.flush()
 
     job.status = "completed"
-    job.raw_response_json = raw_response_json
+    job.raw_response_json = compact_worker_diagnostics(raw_response_json, face_count=len(stored_faces))
     job.finished_at = utc_now()
     session.flush()
     mark_photo_ready_if_jobs_done(session, photo=photo)
@@ -490,7 +557,7 @@ def complete_participant_face_job(
     face_image.status = "ready"
     face_image.error_message = None
     job.status = "completed"
-    job.raw_response_json = raw_response_json
+    job.raw_response_json = compact_worker_diagnostics(raw_response_json, face_count=1)
     job.finished_at = utc_now()
     session.flush()
     create_face_participant_matches_for_participant(session, participant_id=job.participant_id, event_id=job.event_id)
@@ -539,13 +606,12 @@ def complete_face_search_job(
     job.search_image.status = "ready"
     job.search_image.error_message = None
     job.status = "completed"
-    job.raw_response_json = {
-        **(raw_response_json or {}),
-        "bounding_box_json": bounding_box_json,
-        "detection_score": detection_score,
-        "quality_score": quality_score,
-        "matched_count": matched_count,
-    }
+    job.raw_response_json = compact_worker_diagnostics(
+        raw_response_json,
+        detection_score=detection_score,
+        quality_score=quality_score,
+        matched_count=matched_count,
+    )
     job.finished_at = utc_now()
     if job.search_session.participant_id:
         apply_adaptive_reinforcement(session, search_session=job.search_session)
@@ -573,6 +639,7 @@ def create_bib_only_face_search_session(
         event_id=event_id,
         participant_id=participant.id,
         status="processing",
+        expires_at=utc_now() + timedelta(hours=max(1, settings.biometric_retention_hours)),
     )
     session.add(search_session)
     session.flush()
@@ -591,7 +658,7 @@ def create_bib_only_face_search_session(
         )
 
     if seed_embeddings:
-        apply_adaptive_reinforcement(session, search_session=search_session)
+        apply_adaptive_reinforcement(session, search_session=search_session, require_exact_bib=True)
 
     search_session.status = "completed"
     search_session.finished_at = utc_now()
@@ -606,7 +673,7 @@ def select_bib_only_seed_embeddings(
     event_id: uuid.UUID,
     participant: Participant,
 ) -> list[list[float]]:
-    strong_bib_photos = (
+    candidate_photos = (
         session.execute(
             select(Photo)
             .where(Photo.event_id == event_id)
@@ -618,11 +685,17 @@ def select_bib_only_seed_embeddings(
         .all()
     )
 
-    seed_embeddings: list[list[float]] = []
-    cluster_faces: list[PhotoFaceDetection] = []
-    for photo in strong_bib_photos:
-        if score_bib_evidence(photo.detections, participant.bib_number).strength != "strong":
+    candidate_faces: list[PhotoFaceDetection] = []
+    exact_bib_photo_count = 0
+    usable_face_photo_count = 0
+    single_photo_single_face_embedding: list[float] | None = None
+    for photo in candidate_photos:
+        if not has_exact_bib_match(photo.detections, participant.bib_number):
             continue
+
+        exact_bib_photo_count += 1
+        if exact_bib_photo_count > settings.bib_only_seed_photo_limit:
+            break
 
         good_faces = sorted(
             [face for face in photo.face_detections if normalize_embedding_payload(face.embedding_json)],
@@ -631,18 +704,27 @@ def select_bib_only_seed_embeddings(
         )
         if not good_faces:
             continue
+        usable_face_photo_count += 1
         if len(good_faces) == 1:
-            seed_embeddings.append(good_faces[0].embedding_json)
+            candidate_faces.append(good_faces[0])
+            if exact_bib_photo_count == 1:
+                single_photo_single_face_embedding = normalize_embedding_payload(good_faces[0].embedding_json)
         elif is_dominant_face(good_faces):
-            seed_embeddings.append(good_faces[0].embedding_json)
+            candidate_faces.append(good_faces[0])
         else:
-            cluster_faces.extend(good_faces[:4])
+            candidate_faces.extend(good_faces[:4])
 
-        if len(seed_embeddings) >= 3:
-            return dedupe_seed_embeddings(seed_embeddings)[:3]
+    consensus_embeddings = select_consensus_seed_embeddings(
+        candidate_faces,
+        support_photo_count=usable_face_photo_count,
+    )
+    if consensus_embeddings:
+        return consensus_embeddings
 
-    seed_embeddings.extend(select_cluster_seed_embeddings(cluster_faces))
-    return dedupe_seed_embeddings(seed_embeddings)[:3]
+    if exact_bib_photo_count == 1 and usable_face_photo_count == 1 and single_photo_single_face_embedding:
+        return [single_photo_single_face_embedding]
+
+    return []
 
 
 def face_seed_quality(face: PhotoFaceDetection) -> float:
@@ -697,6 +779,84 @@ def select_cluster_seed_embeddings(faces: list[PhotoFaceDetection]) -> list[list
     return [best_cluster[0].embedding_json]
 
 
+def select_consensus_seed_embeddings(
+    faces: list[PhotoFaceDetection],
+    *,
+    support_photo_count: int,
+) -> list[list[float]]:
+    if not faces or support_photo_count <= 0:
+        return []
+
+    clusters = cluster_seed_faces(faces)
+    eligible_clusters = []
+    for cluster in clusters:
+        photo_ids = {face.photo_id for face in cluster}
+        if len(photo_ids) < settings.bib_only_seed_cluster_min_photos:
+            continue
+        avg_quality = sum(face_seed_quality(face) for face in cluster) / len(cluster)
+        eligible_clusters.append((len(photo_ids), avg_quality, cluster))
+
+    if not eligible_clusters:
+        return []
+
+    eligible_clusters.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    best_photo_count, _best_quality, best_cluster = eligible_clusters[0]
+    required_support = max(
+        settings.bib_only_seed_cluster_min_photos,
+        math.ceil(support_photo_count * settings.bib_only_seed_cluster_majority_ratio),
+    )
+    if best_photo_count < required_support:
+        return []
+
+    if len(eligible_clusters) > 1:
+        second_photo_count = eligible_clusters[1][0]
+        has_clear_count_lead = best_photo_count >= second_photo_count + 2
+        has_clear_ratio_lead = best_photo_count >= math.ceil(second_photo_count * settings.bib_only_seed_cluster_lead_ratio)
+        if not has_clear_count_lead and not has_clear_ratio_lead:
+            return []
+
+    best_faces = sorted(best_cluster, key=face_seed_quality, reverse=True)
+    embeddings = [average_face_embeddings(best_faces)]
+    embeddings.extend(face.embedding_json for face in best_faces[:2])
+    return dedupe_seed_embeddings(embeddings)[:3]
+
+
+def cluster_seed_faces(faces: list[PhotoFaceDetection]) -> list[list[PhotoFaceDetection]]:
+    clusters: list[list[PhotoFaceDetection]] = []
+    for face in faces:
+        embedding = normalize_embedding_payload(face.embedding_json)
+        if not embedding:
+            continue
+        best_cluster = None
+        best_score = 0.0
+        for cluster in clusters:
+            score = max(cosine_similarity(embedding, other.embedding_json) for other in cluster)
+            if score > best_score:
+                best_score = score
+                best_cluster = cluster
+        if best_cluster is not None and best_score >= settings.face_reinforcement_similarity_threshold:
+            best_cluster.append(face)
+        else:
+            clusters.append([face])
+    return clusters
+
+
+def average_face_embeddings(faces: list[PhotoFaceDetection]) -> list[float]:
+    embeddings = [normalize_embedding_payload(face.embedding_json) for face in faces]
+    embeddings = [embedding for embedding in embeddings if embedding]
+    if not embeddings:
+        return []
+    dimension = len(embeddings[0])
+    if any(len(embedding) != dimension for embedding in embeddings):
+        return []
+
+    averaged = [sum(embedding[index] for embedding in embeddings) / len(embeddings) for index in range(dimension)]
+    norm = math.sqrt(sum(value * value for value in averaged))
+    if norm <= 0:
+        return []
+    return [value / norm for value in averaged]
+
+
 def dedupe_seed_embeddings(embeddings: list[list[float]]) -> list[list[float]]:
     deduped: list[list[float]] = []
     for embedding in embeddings:
@@ -715,7 +875,7 @@ def mark_face_search_session_done_if_jobs_done(session: Session, *, search_sessi
             select(FaceSearchJob.status).where(FaceSearchJob.search_session_id == search_session.id)
         ).scalars()
     )
-    if statuses and all(status in {"completed", "failed"} for status in statuses):
+    if statuses and all(status in {"completed", "failed", "dead_lettered"} for status in statuses):
         search_session.status = "completed" if any(status == "completed" for status in statuses) else "failed"
         search_session.finished_at = utc_now()
     elif statuses:
@@ -729,48 +889,68 @@ def create_face_search_results(
     search_session_id: uuid.UUID,
     embedding: list[float],
 ) -> int:
-    results_by_detection_id: dict[uuid.UUID, FaceSearchResult] = {
-        result.photo_face_detection_id: result
-        for result in session.execute(
-            select(FaceSearchResult).where(FaceSearchResult.search_session_id == search_session_id)
-        ).scalars()
-    }
-    for pending in session.new:
-        if not isinstance(pending, FaceSearchResult):
-            continue
-        if pending.search_session_id == search_session_id:
-            results_by_detection_id[pending.photo_face_detection_id] = pending
+    detection_count = session.execute(
+        select(func.count(PhotoFaceDetection.id)).where(PhotoFaceDetection.event_id == event_id)
+    ).scalar_one()
+    if detection_count > settings.max_search_faces_per_event:
+        raise RuntimeError("This event is still being indexed for face search. Please try again later.")
 
-    detections = (
-        session.execute(
-            select(PhotoFaceDetection).where(PhotoFaceDetection.event_id == event_id)
+    # Keep only the strongest bounded candidates while streaming JSON embeddings from
+    # PostgreSQL. This avoids hydrating a whole event and prevents a probe from writing
+    # an unbounded result set. A vector index can replace this implementation later
+    # without changing the caller contract.
+    candidates: list[tuple[float, str, uuid.UUID, uuid.UUID]] = []
+    rows = session.execute(
+        select(
+            PhotoFaceDetection.id,
+            PhotoFaceDetection.photo_id,
+            PhotoFaceDetection.embedding_json,
         )
-        .scalars()
-        .all()
+        .where(PhotoFaceDetection.event_id == event_id)
+        .execution_options(yield_per=500)
     )
-    created_count = 0
-    for detection in detections:
-        score = cosine_similarity(embedding, detection.embedding_json)
+    for detection_id, photo_id, candidate_embedding in rows:
+        score = cosine_similarity(embedding, candidate_embedding)
         if score < settings.face_candidate_similarity_threshold:
             continue
-        existing = results_by_detection_id.get(detection.id)
-        if existing is None:
-            result = FaceSearchResult(
-                event_id=event_id,
-                search_session_id=search_session_id,
-                photo_id=detection.photo_id,
-                photo_face_detection_id=detection.id,
-                similarity_score=score,
+        item = (score, str(detection_id), detection_id, photo_id)
+        if len(candidates) < settings.max_search_results:
+            heapq.heappush(candidates, item)
+        elif score > candidates[0][0]:
+            heapq.heapreplace(candidates, item)
+
+    upserted_count = 0
+    result_table = FaceSearchResult.__table__
+    insert_factory = sqlite_insert if session.get_bind().dialect.name == "sqlite" else postgresql_insert
+    for score, _stable_id, detection_id, photo_id in sorted(candidates, reverse=True):
+        statement = insert_factory(result_table).values(
+            event_id=event_id,
+            search_session_id=search_session_id,
+            photo_id=photo_id,
+            photo_face_detection_id=detection_id,
+            similarity_score=score,
+        )
+        excluded = statement.excluded
+        best_score = case(
+            (result_table.c.similarity_score >= excluded.similarity_score, result_table.c.similarity_score),
+            else_=excluded.similarity_score,
+        )
+        session.execute(
+            statement.on_conflict_do_update(
+                index_elements=[result_table.c.search_session_id, result_table.c.photo_face_detection_id],
+                set_={"similarity_score": best_score, "photo_id": excluded.photo_id},
             )
-            session.add(result)
-            results_by_detection_id[detection.id] = result
-            created_count += 1
-        else:
-            existing.similarity_score = max(existing.similarity_score, score)
-    return created_count
+        )
+        upserted_count += 1
+    return upserted_count
 
 
-def apply_adaptive_reinforcement(session: Session, *, search_session: FaceSearchSession) -> int:
+def apply_adaptive_reinforcement(
+    session: Session,
+    *,
+    search_session: FaceSearchSession,
+    require_exact_bib: bool = False,
+) -> int:
     participant_id = search_session.participant_id
     if participant_id is None:
         return 0
@@ -786,7 +966,12 @@ def apply_adaptive_reinforcement(session: Session, *, search_session: FaceSearch
             session.execute(
                 select(FaceSearchResult)
                 .where(FaceSearchResult.search_session_id == search_session.id)
+                .options(
+                    selectinload(FaceSearchResult.photo).selectinload(Photo.detections),
+                    selectinload(FaceSearchResult.photo_face_detection),
+                )
                 .order_by(FaceSearchResult.similarity_score.desc())
+                .limit(settings.max_search_results)
             )
             .scalars()
             .all()
@@ -796,14 +981,20 @@ def apply_adaptive_reinforcement(session: Session, *, search_session: FaceSearch
             if created_total >= settings.face_reinforcement_max_embeddings:
                 return created_total
 
-            photo = session.get(Photo, result.photo_id)
-            detection = session.get(PhotoFaceDetection, result.photo_face_detection_id)
+            photo = result.photo
+            detection = result.photo_face_detection
             if photo is None or detection is None:
                 continue
 
-            bib_evidence = score_bib_evidence(photo.detections, participant.bib_number)
-            if not should_reinforce_face(face_score=result.similarity_score, bib_strength=bib_evidence.strength):
-                continue
+            if require_exact_bib:
+                if not has_exact_bib_match(photo.detections, participant.bib_number):
+                    continue
+                if result.similarity_score < settings.face_reinforcement_similarity_threshold:
+                    continue
+            else:
+                bib_evidence = score_bib_evidence(photo.detections, participant.bib_number)
+                if not should_reinforce_face(face_score=result.similarity_score, bib_strength=bib_evidence.strength):
+                    continue
 
             embedding = normalize_embedding_payload(detection.embedding_json)
             if not embedding or detection.id in reinforced_detection_ids:
@@ -843,7 +1034,7 @@ def score_bib_evidence(detections: Iterable[PhotoTextDetection], bib_number: str
         for candidate in extract_match_candidates(detection.detected_text):
             if not candidate:
                 continue
-            if candidate == target or target in candidate:
+            if candidate == target:
                 return BibEvidence(strength="strong", matched_values=(detection.detected_text,))
             if is_partial_bib_match(candidate, target):
                 weak_matches.append(detection.detected_text)
@@ -853,8 +1044,30 @@ def score_bib_evidence(detections: Iterable[PhotoTextDetection], bib_number: str
     return BibEvidence(strength="none", matched_values=())
 
 
+def has_exact_bib_match(detections: Iterable[PhotoTextDetection], bib_number: str) -> bool:
+    return bool(exact_bib_match_values(detections, bib_number))
+
+
+def exact_bib_match_values(detections: Iterable[PhotoTextDetection], bib_number: str) -> tuple[str, ...]:
+    target = normalize_match_token(bib_number)
+    if not target:
+        return ()
+
+    matched_values: list[str] = []
+    seen: set[str] = set()
+    for detection in detections:
+        for candidate in extract_match_candidates(detection.detected_text):
+            if candidate != target or detection.detected_text in seen:
+                continue
+            seen.add(detection.detected_text)
+            matched_values.append(detection.detected_text)
+    return tuple(matched_values[:3])
+
+
 def is_partial_bib_match(candidate: str, target: str) -> bool:
     if len(target) < 3 or len(candidate) < 2:
+        return False
+    if len(candidate) > len(target):
         return False
     if candidate in target and len(candidate) >= max(2, len(target) - 1):
         return True
@@ -881,8 +1094,14 @@ def mark_photo_ready_if_jobs_done(session: Session, *, photo: Photo) -> None:
             select(PhotoJob.status).where(PhotoJob.photo_id == photo.id)
         ).scalars()
     )
-    if statuses and all(status in {"completed", "failed"} for status in statuses):
-        photo.status = "ready" if any(status == "completed" for status in statuses) else "failed"
+    if statuses and all(status in {"completed", "failed", "dead_lettered"} for status in statuses):
+        completed_count = sum(status == "completed" for status in statuses)
+        if completed_count == len(statuses):
+            photo.status = "ready"
+        elif completed_count:
+            photo.status = "partially_ready"
+        else:
+            photo.status = "failed"
     elif statuses:
         photo.status = "processing"
 
@@ -980,32 +1199,28 @@ def create_face_matches(
 
     created_count = 0
     for participant_id, score in best_by_participant.items():
-        existing = session.execute(
-            select(FaceParticipantMatch).where(
-                FaceParticipantMatch.photo_face_detection_id == detection.id,
-                FaceParticipantMatch.participant_id == participant_id,
+        table = FaceParticipantMatch.__table__
+        insert_factory = sqlite_insert if session.get_bind().dialect.name == "sqlite" else postgresql_insert
+        statement = insert_factory(table).values(
+            event_id=detection.event_id,
+            photo_id=detection.photo_id,
+            photo_face_detection_id=detection.id,
+            participant_id=participant_id,
+            similarity_score=score,
+            status="auto_matched",
+        )
+        excluded = statement.excluded
+        best_score = case(
+            (table.c.similarity_score >= excluded.similarity_score, table.c.similarity_score),
+            else_=excluded.similarity_score,
+        )
+        session.execute(
+            statement.on_conflict_do_update(
+                index_elements=[table.c.photo_face_detection_id, table.c.participant_id],
+                set_={"similarity_score": best_score, "status": "auto_matched"},
             )
-        ).scalar_one_or_none()
-        if existing is None:
-            existing = pending_face_participant_match(
-                session,
-                photo_face_detection_id=detection.id,
-                participant_id=participant_id,
-            )
-        if existing is None:
-            session.add(
-                FaceParticipantMatch(
-                    event_id=detection.event_id,
-                    photo_id=detection.photo_id,
-                    photo_face_detection_id=detection.id,
-                    participant_id=participant_id,
-                    similarity_score=score,
-                    status="auto_matched",
-                )
-            )
-            created_count += 1
-        else:
-            existing.similarity_score = max(existing.similarity_score, score)
+        )
+        created_count += 1
 
         upsert_final_photo_participant_match(
             session,
@@ -1020,30 +1235,22 @@ def create_face_matches(
     return created_count
 
 
-def pending_face_participant_match(
-    session: Session,
-    *,
-    photo_face_detection_id: uuid.UUID,
-    participant_id: uuid.UUID,
-) -> FaceParticipantMatch | None:
-    for pending in session.new:
-        if not isinstance(pending, FaceParticipantMatch):
-            continue
-        if pending.photo_face_detection_id == photo_face_detection_id and pending.participant_id == participant_id:
-            return pending
-    return None
-
-
 def normalize_embedding_payload(value: object) -> list[float]:
-    if not isinstance(value, list):
+    if not isinstance(value, list) or len(value) != 512:
         return []
     embedding: list[float] = []
     for item in value:
         try:
-            embedding.append(float(item))
+            number = float(item)
         except (TypeError, ValueError):
             return []
-    return embedding
+        if not math.isfinite(number) or abs(number) > 100:
+            return []
+        embedding.append(number)
+    norm = math.sqrt(sum(number * number for number in embedding))
+    if not math.isfinite(norm) or norm <= 1e-12:
+        return []
+    return [number / norm for number in embedding]
 
 
 def cosine_similarity(left: list[float], right: list[float]) -> float:
@@ -1055,17 +1262,21 @@ def cosine_similarity(left: list[float], right: list[float]) -> float:
     right_norm = math.sqrt(sum(b * b for b in right))
     if left_norm <= 0 or right_norm <= 0:
         return 0.0
-    return dot / (left_norm * right_norm)
+    # Floating-point rounding can produce 1.0000000000000002 for identical
+    # normalized vectors; keep persisted scores inside their database domain.
+    return max(-1.0, min(1.0, dot / (left_norm * right_norm)))
 
 
 def extract_match_candidates(value: str) -> list[str]:
-    tokens = re.findall(r"[A-Z0-9]+", value.upper())
+    normalized_value = value.upper()
+    tokens = ASCII_TOKEN_PATTERN.findall(normalized_value)
     seen: set[str] = set()
     candidates: list[str] = []
 
     raw_candidate = normalize_match_token(value)
     if raw_candidate:
         tokens.insert(0, raw_candidate)
+    tokens.extend(ASCII_DIGIT_PATTERN.findall(normalized_value))
 
     for token in tokens:
         normalized = normalize_match_token(token)
@@ -1077,4 +1288,4 @@ def extract_match_candidates(value: str) -> list[str]:
 
 
 def normalize_match_token(value: str) -> str:
-    return re.sub(r"[^A-Z0-9]+", "", value.upper())
+    return re.sub(r"[^A-Za-z0-9]+", "", value).upper()

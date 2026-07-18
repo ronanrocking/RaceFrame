@@ -1,0 +1,63 @@
+name: Publish immutable release images
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Define immutable image names
+        shell: bash
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "BACKEND_IMAGE=ghcr.io/${owner}/raceframe-backend" >> "${GITHUB_ENV}"
+          echo "WORKER_IMAGE=ghcr.io/${owner}/raceframe-worker" >> "${GITHUB_ENV}"
+          echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${GITHUB_ENV}"
+
+      - name: Authenticate to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+
+      - name: Build images once
+        run: |
+          docker build \
+            --build-arg VCS_REF="${GITHUB_SHA}" \
+            --build-arg BUILD_DATE="${BUILD_DATE}" \
+            --tag "${BACKEND_IMAGE}:${GITHUB_SHA}" backend
+          docker build \
+            --build-arg VCS_REF="${GITHUB_SHA}" \
+            --build-arg BUILD_DATE="${BUILD_DATE}" \
+            --tag "${WORKER_IMAGE}:${GITHUB_SHA}" raceframe-worker
+
+      - name: Push commit-addressed images
+        run: |
+          docker push "${BACKEND_IMAGE}:${GITHUB_SHA}"
+          docker push "${WORKER_IMAGE}:${GITHUB_SHA}"
+
+      - name: Record immutable digests
+        run: |
+          docker pull "${BACKEND_IMAGE}:${GITHUB_SHA}"
+          docker pull "${WORKER_IMAGE}:${GITHUB_SHA}"
+          docker inspect --format='{{index .RepoDigests 0}}' "${BACKEND_IMAGE}:${GITHUB_SHA}" > release-manifest.txt
+          docker inspect --format='{{index .RepoDigests 0}}' "${WORKER_IMAGE}:${GITHUB_SHA}" >> release-manifest.txt
+          printf 'source=%s\ntag=%s\nbuilt_at=%s\n' "${GITHUB_SHA}" "${GITHUB_REF_NAME}" "${BUILD_DATE}" >> release-manifest.txt
+          cat release-manifest.txt >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload release manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: raceframe-release-${{ github.sha }}
+          path: release-manifest.txt
+          if-no-files-found: error
+          retention-days: 90

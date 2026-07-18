@@ -1,18 +1,69 @@
 services:
   postgres:
-    image: postgres:16
+    # Keep the libc collation provider compatible with the cluster's original
+    # Debian 13 initialization; changing provider versions requires a planned
+    # REINDEX/REFRESH COLLATION maintenance operation.
+    image: postgres@sha256:fe03a7605299a34ddf5e4f285dff78c3d7190a576b3c6b46f2fcff69f4bffd54
     container_name: raceframe-postgres
     restart: unless-stopped
+    stop_grace_period: 2m
     env_file:
       - .env
+    user: "999:999"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m,uid=999,gid=999,mode=1777
+      - /var/run/postgresql:rw,noexec,nosuid,size=16m,uid=999,gid=999,mode=0770
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 1536m
+    mem_reservation: 512m
+    cpus: 1.0
+    shm_size: 256m
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - ./data:/var/lib/postgresql/data
+      - type: bind
+        source: ./data
+        target: /var/lib/postgresql/data
+      - type: bind
+        source: ./initdb
+        target: /docker-entrypoint-initdb.d
+        read_only: true
+    command:
+      - postgres
+      - -c
+      - log_min_duration_statement=1000
+      - -c
+      - log_lock_waits=on
+      - -c
+      - deadlock_timeout=1s
+      - -c
+      - statement_timeout=60s
+      - -c
+      - idle_in_transaction_session_timeout=60s
+      - -c
+      - max_connections=100
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
     networks:
       raceframe-internal:
         aliases:
           - raceframe-postgres
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
 
 networks:
   raceframe-internal:

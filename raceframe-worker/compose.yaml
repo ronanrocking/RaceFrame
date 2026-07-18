@@ -1,12 +1,48 @@
 services:
   worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${RACEFRAME_WORKER_IMAGE:?Set RACEFRAME_WORKER_IMAGE to an immutable image digest}
     container_name: raceframe-worker
     restart: unless-stopped
+    stop_grace_period: 2m
     env_file:
       - .env
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m,mode=1777
     volumes:
-      - ./secrets:/worker/secrets:ro
-      - ./model-cache:/root/.insightface
+      - type: bind
+        source: ./secrets
+        target: /worker/secrets
+        read_only: true
+      - type: bind
+        source: ./model-cache
+        target: /home/raceframe/.insightface
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    pids_limit: 512
+    mem_limit: 3g
+    mem_reservation: 1g
+    cpus: 1.0
+    ulimits:
+      nofile:
+        soft: 8192
+        hard: 8192
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import os; os.kill(1, 0)
+      interval: 60s
+      timeout: 5s
+      start_period: 3m
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"

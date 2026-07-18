@@ -1,0 +1,13 @@
+[Unit]
+Description=RaceFrame read-only database and R2 reconciliation
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/raceframe/raceframe-backend
+ExecStart=/usr/bin/docker compose --profile maintenance run --rm maintenance python -m app.storage_reconcile
+TimeoutStartSec=30min
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
