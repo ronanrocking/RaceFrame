@@ -6,7 +6,7 @@
     <title>{{ title if title else "RaceFrame" }}</title>
     <meta name="description" content="{% block meta_description %}RaceFrame helps race participants find event photos using bib and face evidence.{% endblock %}" />
     <meta name="theme-color" content="#f2f0e8" />
-    <link rel="stylesheet" href="/static/admin.css?v=16" />
+    <link rel="stylesheet" href="/static/admin.css?v=17" />
   </head>
   <body class="{% block body_class %}{% endblock %}">
     <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -45,9 +45,7 @@
     <main id="main-content" class="page-shell {% block shell_class %}{% endblock %}">
       <header class="page-header {% block page_header_class %}{% endblock %}">
         <div class="page-header-copy">
-          {% block header_eyebrow %}{% endblock %}
           <h1>{% block header_title %}Admin{% endblock %}</h1>
-          {% block header_subtitle %}{% endblock %}
         </div>
         <div class="page-header-actions">
           {% block header_actions %}
