@@ -4,28 +4,45 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ title if title else "RaceFrame" }}</title>
-    <link rel="stylesheet" href="/static/admin.css?v=15" />
+    <meta name="description" content="{% block meta_description %}RaceFrame helps race participants find event photos using bib and face evidence.{% endblock %}" />
+    <meta name="theme-color" content="#f2f0e8" />
+    <link rel="stylesheet" href="/static/admin.css?v=16" />
   </head>
   <body class="{% block body_class %}{% endblock %}">
+    <a class="skip-link" href="#main-content">Skip to main content</a>
     <div class="site-chrome {% block site_chrome_class %}{% endblock %}">
       <div class="site-topbar">
         <a class="site-brand" href="/admin">
-          <span class="site-brand-mark">Race</span><span class="site-brand-accent">Frame</span>
+          <span class="site-brand-glyph" aria-hidden="true"></span>
+          <span class="site-brand-word"><span class="site-brand-mark">RACE</span><span class="site-brand-accent">FRAME</span></span>
         </a>
         <nav class="site-nav" aria-label="Primary">{% block site_nav %}
-          <a class="site-nav-link {% if request.url.path.startswith('/admin') %}is-active{% endif %}" href="/admin">Admin</a>
-          <a class="site-nav-link {% if request.url.path.startswith('/upload') %}is-active{% endif %}" href="/upload">Upload</a>
-          <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" href="/user">User</a>
-          <a class="site-nav-link {% if request.url.path == '/admin/events/new' %}is-active{% endif %}" href="/admin/events/new">New Event</a>
+          <a class="site-nav-link {% if request.url.path.startswith('/admin') %}is-active{% endif %}" {% if request.url.path.startswith('/admin') %}aria-current="page"{% endif %} href="/admin">Admin</a>
+          <a class="site-nav-link {% if request.url.path.startswith('/upload') %}is-active{% endif %}" {% if request.url.path.startswith('/upload') %}aria-current="page"{% endif %} href="/upload">Upload</a>
+          <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" {% if request.url.path.startswith('/user') %}aria-current="page"{% endif %} href="/user">Find Photos</a>
+          <a class="site-nav-link {% if request.url.path == '/admin/events/new' %}is-active{% endif %}" {% if request.url.path == '/admin/events/new' %}aria-current="page"{% endif %} href="/admin/events/new">New Event</a>
         {% endblock %}</nav>
+        <details class="site-mobile-nav">
+          <summary>Menu <span aria-hidden="true">+</span></summary>
+          <nav aria-label="Mobile primary">
+            <a href="/admin"><span>01</span>Admin</a>
+            <a href="/upload"><span>02</span>Upload</a>
+            <a href="/user"><span>03</span>Find Photos</a>
+            <a href="/admin/events/new"><span>04</span>New Event</a>
+          </nav>
+        </details>
       </div>
       {% block site_marquee %}
-        <div class="site-marquee">
-          <div class="site-marquee-text">{% block marquee_text %}RaceFrame admin control center - events - participants - uploads - user gallery{% endblock %}</div>
+        <div class="site-marquee" aria-label="RaceFrame capabilities">
+          <div class="site-marquee-track">
+            <span class="site-marquee-text">{% block marquee_text %}FIND YOUR FRAME — BIB OCR — FACE EVIDENCE — EVENT PHOTOGRAPHY —{% endblock %}</span>
+            <span class="site-marquee-text" aria-hidden="true">{{ self.marquee_text() }}</span>
+            <span class="site-marquee-text" aria-hidden="true">{{ self.marquee_text() }}</span>
+          </div>
         </div>
       {% endblock %}
     </div>
-    <div class="page-shell {% block shell_class %}{% endblock %}">
+    <main id="main-content" class="page-shell {% block shell_class %}{% endblock %}">
       <header class="page-header {% block page_header_class %}{% endblock %}">
         <div class="page-header-copy">
           {% block header_eyebrow %}{% endblock %}
@@ -39,7 +56,30 @@
         </div>
       </header>
       {% block content %}{% endblock %}
-    </div>
+    </main>
+    <footer class="site-footer">
+      <div class="site-footer-grid">
+        <div class="site-footer-brand">
+          <p class="site-footer-wordmark">RACE<span>FRAME</span></p>
+          <p>Race-day photo discovery engineered around independent bib and face evidence.</p>
+          <span>India · Event imaging system · Est. 2026</span>
+        </div>
+        <div class="site-footer-links">
+          <p>Workflows</p>
+          <a href="/user">Find photos <span aria-hidden="true">→</span></a>
+          <a href="/upload">Upload photos <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="site-footer-links">
+          <p>Operations</p>
+          <a href="/admin">Admin console <span aria-hidden="true">→</span></a>
+          <a href="/admin/events/new">Create event <span aria-hidden="true">→</span></a>
+        </div>
+      </div>
+      <div class="site-footer-bottom">
+        <span>© 2026 RaceFrame</span>
+        <span>OCR / FACE / HYBRID MATCH</span>
+      </div>
+    </footer>
     <script nonce="{{ csp_nonce }}">
       document.addEventListener("submit", (event) => {
         const message = event.target && event.target.dataset ? event.target.dataset.confirm : "";

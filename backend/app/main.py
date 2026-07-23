@@ -122,13 +122,24 @@ async def admin_session_middleware(request: Request, call_next):
     session_id = request.cookies.get(ADMIN_SESSION_COOKIE) or str(uuid4())
     if not await run_in_threadpool(try_acquire_admin_session, session_id):
         return HTMLResponse(
-            "<h1>Admin panel in use</h1>"
+            "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            "<meta name='theme-color' content='#f2f0e8'>"
+            "<title>Admin panel in use - RaceFrame</title>"
+            "<link rel='stylesheet' href='/static/admin.css?v=16'></head>"
+            "<body class='admin-theme system-state-page'><main class='system-state-shell'>"
+            "<a class='site-brand system-state-brand' href='/admin'>"
+            "<span class='site-brand-glyph' aria-hidden='true'></span>"
+            "<span class='site-brand-word'><span class='site-brand-mark'>RACE</span>"
+            "<span class='site-brand-accent'>FRAME</span></span></a>"
+            "<section class='system-state-panel'><p class='page-eyebrow'><span>409</span> Session Control</p>"
+            "<h1>Admin panel<br>in use</h1>"
             "<p>Another admin session is currently active. "
             "If that session is stale, you can take over from this browser.</p>"
-            "<form method='post' action='/admin/session/takeover'>"
+            "<form method='post' action='/admin/session/takeover' class='system-state-action'>"
             f"<input type='hidden' name='csrf_token' value='{escape(request.state.csrf_token)}'>"
-            "<p><button type='submit'>Take Over Admin Session</button></p>"
-            "</form>",
+            "<button class='admin-button admin-button-primary' type='submit'>Take Over Admin Session</button>"
+            "</form></section></main></body></html>",
             status_code=409,
         )
 

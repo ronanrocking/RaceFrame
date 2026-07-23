@@ -4,11 +4,12 @@
 {% block shell_class %}admin-shell{% endblock %}
 
 {% block site_nav %}
-  <a class="site-nav-link {% if request.url.path.startswith('/upload') %}is-active{% endif %}" href="/upload">Upload</a>
-  <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" href="/user">User</a>
+  <a class="site-nav-link" href="/admin">Admin</a>
+  <a class="site-nav-link" href="/upload">Upload</a>
+  <a class="site-nav-link is-active" aria-current="page" href="/user">Find Photos</a>
 {% endblock %}
 
-{% block site_marquee %}{% endblock %}
+{% block header_eyebrow %}<p class="page-eyebrow"><span>02</span> Evidence Search</p>{% endblock %}
 {% block header_title %}Search Race Photos{% endblock %}
 {% block header_subtitle %}
   <p class="admin-header-subtitle">{{ event.name }}</p>
@@ -40,8 +41,10 @@
       <form method="post" action="/user/events/{{ event.id }}/selfies" enctype="multipart/form-data" class="admin-form user-search-form user-selfie-search-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
         <div>
-          <p class="admin-section-label">Required Search</p>
-          <h3>Bib + Face Search</h3>
+          <span class="user-search-index">01</span>
+          <p class="admin-section-label">Recommended Search</p>
+          <h3>Bib + Face</h3>
+          <p class="user-search-description">Best coverage. Add clear face photos from different angles to reinforce bib evidence.</p>
         </div>
         <label class="admin-field">
           <span class="admin-field-label">Participant Bib Or Name</span>
@@ -59,8 +62,10 @@
       <form method="post" action="/user/events/{{ event.id }}/bib-only" class="admin-form user-search-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
         <div>
+          <span class="user-search-index">02</span>
           <p class="admin-section-label">Fallback Search</p>
-          <h3>Bib Only Reinforcement</h3>
+          <h3>Bib Only</h3>
+          <p class="user-search-description">Uses strong OCR matches to build temporary face seeds when selfies are unavailable.</p>
         </div>
         <label class="admin-field">
           <span class="admin-field-label">Participant Bib Or Name</span>

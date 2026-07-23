@@ -3,13 +3,15 @@
 {% block body_class %}admin-theme {% if not event %}admin-dashboard-page admin-create-page{% else %}admin-edit-page{% endif %}{% endblock %}
 {% block shell_class %}admin-shell{% endblock %}
 {% block site_nav %}
-  <a class="site-nav-link {% if request.url.path.startswith('/upload') %}is-active{% endif %}" href="/upload">Upload</a>
-  <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" href="/user">User</a>
+  <a class="site-nav-link is-active" aria-current="page" href="/admin">Admin</a>
+  <a class="site-nav-link" href="/upload">Upload</a>
+  <a class="site-nav-link" href="/user">Find Photos</a>
 {% endblock %}
-{% block site_marquee %}{% endblock %}
-{% block header_eyebrow %}{% endblock %}
+{% block header_eyebrow %}<p class="page-eyebrow"><span>{% if event %}02{% else %}01{% endif %}</span> Event Configuration</p>{% endblock %}
 {% block header_title %}{{ page_title }}{% endblock %}
-{% block header_subtitle %}{% endblock %}
+{% block header_subtitle %}
+  <p class="admin-header-subtitle">{% if event %}Control event details, participant records, photo processing, and lifecycle actions.{% else %}Define the event shell. The slug is generated safely when the event is saved.{% endif %}</p>
+{% endblock %}
 {% block header_actions %}
   {% if not event %}
     <a class="admin-button admin-button-secondary" href="/admin">Back to Dashboard</a>
@@ -34,6 +36,7 @@
       <section class="admin-section admin-section-main">
         <div class="admin-section-header">
           <div>
+            <p class="admin-section-label">Core Details</p>
             <h2>{{ page_title }}</h2>
           </div>
           <span class="admin-badge admin-badge-muted">
@@ -81,6 +84,7 @@
       <section class="admin-section admin-section-main">
         <div class="admin-section-header admin-edit-heading">
           <div>
+            <p class="admin-section-label">Event Record</p>
             <h2>{{ page_title }}</h2>
           </div>
           <span class="admin-badge {% if event.status == 'published' %}admin-badge-success{% else %}admin-badge-muted{% endif %}">
@@ -126,6 +130,7 @@
       <section class="admin-section admin-edit-utility-section">
         <div class="admin-section-header">
           <div>
+            <p class="admin-section-label">Roster Input</p>
             <h2>Participants</h2>
           </div>
           <span class="admin-panel-meta">{{ participant_count }} loaded</span>
@@ -170,6 +175,7 @@
       <section class="admin-section">
         <div class="admin-section-header">
           <div>
+            <p class="admin-section-label">Roster Database</p>
             <h2>Participant List</h2>
           </div>
           <span class="admin-panel-meta">{{ participants|length }} row{{ "" if participants|length == 1 else "s" }}</span>
@@ -223,6 +229,7 @@
       <section class="admin-section">
         <div class="admin-section-header">
           <div>
+            <p class="admin-section-label">Processing Overview</p>
             <h2>Uploaded Photos</h2>
           </div>
           <span class="admin-panel-meta">{{ photo_count }} photo{{ "" if photo_count == 1 else "s" }}</span>
@@ -285,6 +292,7 @@
       <section class="admin-section admin-edit-danger-zone">
         <div class="admin-section-header">
           <div>
+            <p class="admin-section-label">Irreversible Actions</p>
             <h2>Danger Zone</h2>
           </div>
         </div>

@@ -1,15 +1,29 @@
 {% extends "base.html" %}
 
+{% block body_class %}admin-theme user-page user-gallery-page{% endblock %}
+{% block site_nav %}
+  <a class="site-nav-link" href="/admin">Admin</a>
+  <a class="site-nav-link" href="/upload">Upload</a>
+  <a class="site-nav-link is-active" aria-current="page" href="/user">Find Photos</a>
+{% endblock %}
+{% block header_eyebrow %}<p class="page-eyebrow"><span>03</span> Image Archive</p>{% endblock %}
 {% block header_title %}User Gallery{% endblock %}
+{% block header_subtitle %}<p class="admin-header-subtitle">Stored photography and the OCR evidence captured for each frame.</p>{% endblock %}
+{% block header_actions %}<a class="admin-button admin-button-secondary" href="/user">Find Photos</a>{% endblock %}
 
 {% block content %}
-  <section>
-    <h2>Stored Photos</h2>
-    <p>This mock user page shows every stored photo together with all OCR text detections captured for that image.</p>
+  <section class="admin-section">
+    <div class="admin-section-header">
+      <div>
+        <p class="admin-section-label">Archive</p>
+        <h2>Stored Photos</h2>
+      </div>
+      <span class="admin-panel-meta">{{ photo_items|length }} frame{{ "" if photo_items|length == 1 else "s" }}</span>
+    </div>
   </section>
 
   {% if photo_items %}
-    <section class="card-grid">
+    <section class="card-grid gallery-card-grid">
       {% for item in photo_items %}
         <article class="card">
           <h3>{{ item.photo.file_name }}</h3>
@@ -35,7 +49,11 @@
     </section>
   {% else %}
     <section>
-      <p>No photos are stored yet.</p>
+      <div class="admin-empty-state admin-empty-state-tight">
+        <span class="empty-index">00</span>
+        <h4>No stored photos</h4>
+        <p>Images will appear here after the photographer workflow accepts them.</p>
+      </div>
     </section>
   {% endif %}
 {% endblock %}

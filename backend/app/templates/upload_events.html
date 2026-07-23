@@ -5,12 +5,13 @@
 
 {% block site_nav %}
   <a class="site-nav-link" href="/admin">Admin</a>
-  <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" href="/user">User</a>
+  <a class="site-nav-link is-active" aria-current="page" href="/upload">Upload</a>
+  <a class="site-nav-link" href="/user">Find Photos</a>
 {% endblock %}
 
-{% block site_marquee %}{% endblock %}
-
+{% block header_eyebrow %}<p class="page-eyebrow"><span>01</span> Photographer Workflow</p>{% endblock %}
 {% block header_title %}Photographer Upload{% endblock %}
+{% block header_subtitle %}<p class="admin-header-subtitle">Select a published race and deliver photography into the OCR and face-processing queue.</p>{% endblock %}
 {% block header_actions %}{% endblock %}
 
 {% block content %}
@@ -19,11 +20,18 @@
   {% endif %}
 
   <section class="upload-intro">
-    <p>Choose your event and upload event photographs to the server. OCI processing will take place automatically, and users will be matched.</p>
+    <span class="upload-intro-index">01</span>
+    <p>Choose the correct event, then upload original race photographs. Processing begins automatically and each image is handled independently.</p>
   </section>
 
   <section class="admin-dashboard-table-section">
-    <h2>Published Events</h2>
+    <div class="admin-section-header">
+      <div>
+        <p class="admin-section-label">Available Destinations</p>
+        <h2>Published Events</h2>
+      </div>
+      <span class="admin-panel-meta">{{ events|length }} event{{ "" if events|length == 1 else "s" }}</span>
+    </div>
 
     {% if events %}
       <div class="admin-dashboard-table-wrap">

@@ -4,13 +4,14 @@
 {% block shell_class %}admin-shell{% endblock %}
 
 {% block site_nav %}
-  <a class="site-nav-link {% if request.url.path.startswith('/upload') %}is-active{% endif %}" href="/upload">Upload</a>
-  <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" href="/user">User</a>
+  <a class="site-nav-link" href="/admin">Admin</a>
+  <a class="site-nav-link is-active" aria-current="page" href="/upload">Upload</a>
+  <a class="site-nav-link" href="/user">Find Photos</a>
 {% endblock %}
 
-{% block site_marquee %}{% endblock %}
-
+{% block header_eyebrow %}<p class="page-eyebrow"><span>02</span> Batch Ingest</p>{% endblock %}
 {% block header_title %}Upload Photos{% endblock %}
+{% block header_subtitle %}<p class="admin-header-subtitle">A controlled two-file queue with automatic retries for temporary network and server failures.</p>{% endblock %}
 {% block header_actions %}
   <a class="admin-button admin-button-secondary" href="/upload">Back to Events</a>
 {% endblock %}
@@ -44,6 +45,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <label class="admin-field upload-file-field">
         <span class="admin-field-label">Photo Files</span>
+        <span class="admin-field-help">JPG, PNG, or WebP. Select multiple originals; uploads begin after selection.</span>
         <input data-upload-input type="file" name="photo_files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple required />
       </label>
 

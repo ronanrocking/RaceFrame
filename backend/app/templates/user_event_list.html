@@ -4,15 +4,16 @@
 {% block shell_class %}admin-shell{% endblock %}
 
 {% block site_nav %}
-  <a class="site-nav-link {% if request.url.path.startswith('/upload') %}is-active{% endif %}" href="/upload">Upload</a>
-  <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" href="/user">User</a>
+  <a class="site-nav-link" href="/admin">Admin</a>
+  <a class="site-nav-link" href="/upload">Upload</a>
+  <a class="site-nav-link is-active" aria-current="page" href="/user">Find Photos</a>
 {% endblock %}
 
-{% block site_marquee %}{% endblock %}
 {% block page_header_class %}user-page-header{% endblock %}
-{% block header_title %}RaceFrame{% endblock %}
+{% block header_eyebrow %}<p class="page-eyebrow"><span>01</span> Participant Search</p>{% endblock %}
+{% block header_title %}Find Your Frame{% endblock %}
 {% block header_subtitle %}
-  <p class="admin-header-subtitle user-page-subtitle">Choose your event, then search by bib number or participant name to pull every matched race photo.</p>
+  <p class="admin-header-subtitle user-page-subtitle">Choose your event. RaceFrame combines independent bib and face evidence to recover the photographs that belong to your race.</p>
 {% endblock %}
 {% block header_actions %}{% endblock %}
 
@@ -30,6 +31,7 @@
       <div class="user-event-grid">
         {% for item in events %}
           <article class="user-event-card">
+            <span class="user-event-index">{{ "%02d"|format(loop.index) }}</span>
             <div class="user-event-card-copy">
               <span class="admin-section-label">Event</span>
               <h3>{{ item.event.name }}</h3>

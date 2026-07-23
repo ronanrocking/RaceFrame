@@ -4,13 +4,14 @@
 {% block shell_class %}admin-shell{% endblock %}
 
 {% block site_nav %}
-  <a class="site-nav-link {% if request.url.path.startswith('/upload') %}is-active{% endif %}" href="/upload">Upload</a>
-  <a class="site-nav-link {% if request.url.path.startswith('/user') %}is-active{% endif %}" href="/user">User</a>
+  <a class="site-nav-link is-active" aria-current="page" href="/admin">Admin</a>
+  <a class="site-nav-link" href="/upload">Upload</a>
+  <a class="site-nav-link" href="/user">Find Photos</a>
 {% endblock %}
 
-{% block site_marquee %}{% endblock %}
-
+{% block header_eyebrow %}<p class="page-eyebrow"><span>01</span> Event Operations</p>{% endblock %}
 {% block header_title %}Admin Dashboard{% endblock %}
+{% block header_subtitle %}<p class="admin-header-subtitle">Build events, maintain rosters, and monitor the complete image-processing pipeline.</p>{% endblock %}
 {% block header_actions %}{% endblock %}
 
 {% block content %}
@@ -44,7 +45,13 @@
   </section>
 
   <section class="admin-dashboard-table-section">
-    <h2>Current Events</h2>
+    <div class="admin-section-header">
+      <div>
+        <p class="admin-section-label">Event Index</p>
+        <h2>Current Events</h2>
+      </div>
+      <span class="admin-panel-meta">{{ events|length }} total</span>
+    </div>
 
     {% if events %}
       <div class="admin-dashboard-table-wrap">
@@ -83,7 +90,12 @@
         </table>
       </div>
     {% else %}
-      <p class="admin-dashboard-empty">No current events.</p>
+      <div class="admin-empty-state admin-empty-state-tight">
+        <span class="empty-index">00</span>
+        <h4>No current events</h4>
+        <p>Create the first event to begin loading participants and race photography.</p>
+        <a class="admin-open-link" href="/admin/events/new">Create event</a>
+      </div>
     {% endif %}
   </section>
 {% endblock %}

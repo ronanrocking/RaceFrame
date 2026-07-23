@@ -4,11 +4,12 @@
 {% block shell_class %}admin-shell{% endblock %}
 
 {% block site_nav %}
+  <a class="site-nav-link is-active" aria-current="page" href="/admin">Admin</a>
   <a class="site-nav-link" href="/upload">Upload</a>
-  <a class="site-nav-link" href="/user">User</a>
+  <a class="site-nav-link" href="/user">Find Photos</a>
 {% endblock %}
 
-{% block site_marquee %}{% endblock %}
+{% block header_eyebrow %}<p class="page-eyebrow"><span>03</span> Image Diagnostics</p>{% endblock %}
 {% block header_title %}Photo Details{% endblock %}
 {% block header_subtitle %}
   <p class="admin-header-subtitle">{{ event.name }} / {{ photo.file_name }}</p>
