@@ -80,8 +80,38 @@
       </section>
     </div>
   {% else %}
-    <div class="admin-edit-stack">
-      <section class="admin-section admin-section-main">
+    <div class="admin-event-workspace" data-event-workspace>
+      <section class="admin-event-context">
+        <div>
+          <p class="admin-section-label">Event Record</p>
+          <h2>{{ event.name }}</h2>
+        </div>
+        <div class="admin-event-context-meta">
+          <span>{{ event.event_date if event.event_date else "Date not set" }}</span>
+          <span>{{ event.location if event.location else "Location not set" }}</span>
+          <span class="admin-badge {% if event.status == 'published' %}admin-badge-success{% else %}admin-badge-muted{% endif %}">{{ event.status|upper }}</span>
+        </div>
+      </section>
+
+      <nav class="admin-event-tabs" role="tablist" aria-label="Event management">
+        <button type="button" role="tab" aria-selected="true" aria-controls="event-overview" id="tab-overview" data-event-tab="overview">Overview</button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="event-participants" id="tab-participants" data-event-tab="participants">Participants <span>{{ participant_count }}</span></button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="event-photos" id="tab-photos" data-event-tab="photos">Photos <span>{{ photo_count }}</span></button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="event-settings" id="tab-settings" data-event-tab="settings">Settings</button>
+      </nav>
+
+      <section class="admin-event-tab-panel admin-event-overview" id="event-overview" role="tabpanel" aria-labelledby="tab-overview" data-event-panel="overview">
+        <div class="admin-tab-heading"><div><p class="admin-section-label">At a glance</p><h3>Event Overview</h3></div></div>
+        <div class="admin-event-summary-grid">
+          <article class="admin-event-summary-card"><span>Participants</span><strong>{{ participant_count }}</strong><p>Roster entries available for matching.</p></article>
+          <article class="admin-event-summary-card"><span>Photos</span><strong>{{ photo_stats.total }}</strong><p>{{ photo_stats.ready }} ready for participant search.</p></article>
+          <article class="admin-event-summary-card"><span>Pipeline</span><strong>{{ photo_stats.processing }}</strong><p>Processing now · {{ photo_stats.failed }} need attention.</p></article>
+        </div>
+        <div class="admin-event-overview-details"><div><span>Date</span><strong>{{ event.event_date if event.event_date else "Not set" }}</strong></div><div><span>Location</span><strong>{{ event.location if event.location else "Not set" }}</strong></div><div><span>Status</span><strong>{{ event.status|upper }}</strong></div></div>
+      </section>
+
+      <div class="admin-edit-stack">
+      <section class="admin-section admin-section-main" id="event-settings" role="tabpanel" aria-labelledby="tab-settings" data-event-panel="settings" hidden>
         <div class="admin-section-header admin-edit-heading">
           <div>
             <p class="admin-section-label">Event Record</p>
@@ -127,7 +157,7 @@
         </form>
       </section>
 
-      <section class="admin-section admin-edit-utility-section">
+      <section class="admin-section admin-edit-utility-section" id="event-participants" role="tabpanel" aria-labelledby="tab-participants" data-event-panel="participants" hidden>
         <div class="admin-section-header">
           <div>
             <p class="admin-section-label">Roster Input</p>
@@ -136,6 +166,8 @@
           <span class="admin-panel-meta">{{ participant_count }} loaded</span>
         </div>
 
+        <details class="admin-participant-controls">
+          <summary>Add or import participants <span>+</span></summary>
         <div class="admin-edit-participant-options">
           <form method="post" action="/admin/events/{{ event.id }}/participants/add" class="admin-form admin-edit-option-block admin-edit-quick-add admin-edit-option-left">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
@@ -170,9 +202,10 @@
             </div>
           </form>
         </div>
+        </details>
       </section>
 
-      <section class="admin-section">
+      <section class="admin-section" role="tabpanel" aria-labelledby="tab-participants" data-event-panel="participants" hidden>
         <div class="admin-section-header">
           <div>
             <p class="admin-section-label">Roster Database</p>
@@ -226,7 +259,7 @@
         {% endif %}
       </section>
 
-      <section class="admin-section">
+      <section class="admin-section" id="event-photos" role="tabpanel" aria-labelledby="tab-photos" data-event-panel="photos" hidden>
         <div class="admin-section-header">
           <div>
             <p class="admin-section-label">Processing Overview</p>
@@ -289,7 +322,7 @@
         {% endif %}
       </section>
 
-      <section class="admin-section admin-edit-danger-zone">
+      <section class="admin-section admin-settings-danger" role="tabpanel" aria-labelledby="tab-settings" data-event-panel="settings" hidden>
         <div class="admin-section-header">
           <div>
             <p class="admin-section-label">Irreversible Actions</p>
@@ -299,7 +332,7 @@
 
         <div class="admin-danger-list">
           <div class="admin-danger-row">
-            <p class="admin-danger-title">Delete All Participants</p>
+            <div class="admin-danger-copy"><p class="admin-danger-title">Delete All Participants</p><p>Remove every roster entry from this event.</p></div>
             <form method="post" action="/admin/events/{{ event.id }}/participants/delete-all" data-confirm="Delete all participants for this event? This cannot be undone.">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
               <button class="admin-button admin-button-danger" type="submit">Delete All Participants</button>
@@ -307,7 +340,7 @@
           </div>
 
           <div class="admin-danger-row">
-            <p class="admin-danger-title">Delete All Photos</p>
+            <div class="admin-danger-copy"><p class="admin-danger-title">Delete All Photos</p><p>Remove all uploaded images and their processing records.</p></div>
             <form method="post" action="/admin/events/{{ event.id }}/photos/delete-all" data-confirm="Delete all event photos? This cannot be undone.">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
               <button class="admin-button admin-button-danger" type="submit">Delete All Photos</button>
@@ -315,7 +348,7 @@
           </div>
 
           <div class="admin-danger-row">
-            <p class="admin-danger-title">Delete Event</p>
+            <div class="admin-danger-copy"><p class="admin-danger-title">Delete Event</p><p>Permanently remove this event and its associated data.</p></div>
             <form method="post" action="/admin/events/{{ event.id }}/delete" data-confirm="Delete this event and all related records? This cannot be undone.">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
               <button class="admin-button admin-button-danger" type="submit">Delete Event</button>
@@ -323,6 +356,34 @@
           </div>
         </div>
       </section>
+      </div>
     </div>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  {% if event %}
+  <script nonce="{{ csp_nonce }}">
+    (() => {
+      const workspace = document.querySelector("[data-event-workspace]");
+      if (!workspace) return;
+      const tabs = Array.from(workspace.querySelectorAll("[data-event-tab]"));
+      const panels = Array.from(workspace.querySelectorAll("[data-event-panel]"));
+      const activate = (name, updateHash = true) => {
+        const selected = tabs.some((tab) => tab.dataset.eventTab === name) ? name : "overview";
+        tabs.forEach((tab) => {
+          const isSelected = tab.dataset.eventTab === selected;
+          tab.setAttribute("aria-selected", String(isSelected));
+          tab.tabIndex = isSelected ? 0 : -1;
+        });
+        panels.forEach((panel) => { panel.hidden = panel.dataset.eventPanel !== selected; });
+        if (updateHash) history.replaceState(null, "", `#${selected}`);
+      };
+      tabs.forEach((tab) => tab.addEventListener("click", () => activate(tab.dataset.eventTab)));
+      window.addEventListener("hashchange", () => activate(location.hash.slice(1), false));
+      activate(location.hash.slice(1), false);
+    })();
+  </script>
   {% endif %}
 {% endblock %}

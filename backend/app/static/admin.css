@@ -983,6 +983,250 @@ input[type="file"] {
   display: grid;
 }
 
+.admin-event-workspace {
+  display: grid;
+  gap: var(--space-10);
+}
+
+.admin-event-context {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding: var(--space-6) 0;
+  border-top: 1px solid var(--rc-carbon);
+  border-bottom: 1px solid var(--rc-rule);
+}
+
+.admin-event-context h2,
+.admin-tab-heading h3 {
+  margin: 0;
+  color: var(--rc-carbon);
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  letter-spacing: -0.04em;
+  line-height: 0.94;
+}
+
+.admin-event-context-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2) var(--space-4);
+  color: var(--rc-concrete);
+  font-family: var(--font-utility);
+  font-size: var(--text-label);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-event-context-meta > span:not(.admin-badge) + span:not(.admin-badge)::before {
+  content: "/";
+  margin-right: var(--space-4);
+  color: var(--rc-signal);
+}
+
+.admin-event-tabs {
+  display: flex;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--rc-carbon);
+}
+
+.admin-event-tabs button {
+  min-height: 3.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 0;
+  border-top: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--rc-concrete);
+  padding: 0 var(--space-5);
+  font-family: var(--font-utility);
+  font-size: var(--text-label);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.admin-event-tabs button:hover,
+.admin-event-tabs button[aria-selected="true"] {
+  border-top-color: var(--rc-signal);
+  background: var(--rc-chalk);
+  color: var(--rc-carbon);
+}
+
+.admin-event-tabs button span {
+  color: var(--rc-signal);
+}
+
+.admin-event-tab-panel {
+  min-width: 0;
+}
+
+.admin-tab-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-6);
+  margin-bottom: var(--space-8);
+}
+
+.admin-event-summary-grid,
+.admin-event-overview-details {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--rc-carbon);
+}
+
+.admin-event-summary-card,
+.admin-event-overview-details > div {
+  min-height: 11rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-right: 1px solid var(--rc-rule);
+  padding: var(--space-5);
+}
+
+.admin-event-summary-card:last-child,
+.admin-event-overview-details > div:last-child {
+  border-right: 0;
+}
+
+.admin-event-summary-card > span,
+.admin-event-overview-details span {
+  color: var(--rc-concrete);
+  font-family: var(--font-utility);
+  font-size: var(--text-label);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.admin-event-summary-card strong {
+  color: var(--rc-carbon);
+  font-family: var(--font-utility);
+  font-size: clamp(3rem, 4vw, 4.5rem);
+  font-weight: 600;
+  letter-spacing: -0.06em;
+  line-height: 0.78;
+}
+
+.admin-event-summary-card p,
+.admin-event-overview-details strong {
+  margin: 0;
+  color: var(--rc-graphite);
+  font-size: var(--text-small);
+}
+
+.admin-event-overview-details {
+  margin-top: var(--space-6);
+  border-top-color: var(--rc-rule);
+}
+
+.admin-event-overview-details > div {
+  min-height: 6.5rem;
+  gap: var(--space-3);
+}
+
+.admin-event-workspace .admin-edit-stack > .admin-section {
+  padding: 0;
+  border-bottom: 0;
+}
+
+.admin-event-workspace .admin-section-header {
+  margin-bottom: var(--space-8);
+}
+
+.admin-event-workspace .admin-section-main .admin-edit-form {
+  border: 1px solid var(--rc-rule);
+  background: var(--rc-chalk);
+  padding: var(--space-8);
+}
+
+.admin-participant-controls {
+  margin-bottom: var(--space-8);
+  border-top: 1px solid var(--rc-carbon);
+  border-bottom: 1px solid var(--rc-carbon);
+}
+
+.admin-participant-controls summary {
+  min-height: 3.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  color: var(--rc-carbon);
+  font-family: var(--font-utility);
+  font-size: var(--text-label);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  list-style: none;
+}
+
+.admin-participant-controls summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-participant-controls[open] summary span {
+  transform: rotate(45deg);
+}
+
+.admin-event-workspace [data-event-panel="photos"] .admin-stat-card {
+  min-height: 10rem;
+}
+
+.admin-event-workspace [data-event-panel="photos"] .admin-photo-stats-grid-secondary .admin-stat-card {
+  min-height: 8.5rem;
+  padding: var(--space-4);
+}
+
+.admin-event-workspace [data-event-panel="photos"] .admin-photo-stats-grid-secondary .admin-stat-value {
+  font-size: clamp(2.25rem, 3.5vw, 3.25rem);
+}
+
+.admin-settings-danger {
+  margin-top: var(--space-12);
+  border: 1px solid var(--rc-danger);
+  padding: var(--space-6);
+}
+
+.admin-settings-danger .admin-section-header {
+  margin-bottom: var(--space-5);
+  padding-top: 0;
+  border-top: 0;
+}
+
+.admin-settings-danger .admin-section-label,
+.admin-settings-danger .admin-tab-heading .admin-section-label {
+  color: var(--rc-danger);
+}
+
+.admin-settings-danger .admin-danger-list {
+  border-top: 1px solid var(--rc-rule);
+}
+
+.admin-settings-danger .admin-danger-row {
+  min-height: 5.5rem;
+  border-bottom: 1px solid var(--rc-rule);
+}
+
+.admin-settings-danger .admin-danger-title {
+  color: var(--rc-carbon);
+  font-weight: 700;
+}
+
+.admin-danger-copy p:last-child {
+  margin: var(--space-1) 0 0;
+  color: var(--rc-concrete);
+  font-size: var(--text-small);
+}
+
 .admin-edit-page .page-header,
 .admin-photo-detail-page .page-header {
   min-height: 0;
@@ -2114,6 +2358,42 @@ input[type="file"] {
   .card-grid,
   .admin-evidence-grid {
     grid-template-columns: 1fr;
+  }
+
+  .admin-event-workspace {
+    gap: var(--space-8);
+  }
+
+  .admin-event-context,
+  .admin-tab-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-event-context-meta {
+    justify-content: flex-start;
+  }
+
+  .admin-event-summary-grid,
+  .admin-event-overview-details {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-event-summary-card,
+  .admin-event-overview-details > div {
+    min-height: 8.5rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--rc-rule);
+  }
+
+  .admin-event-summary-card:last-child,
+  .admin-event-overview-details > div:last-child {
+    border-bottom: 0;
+  }
+
+  .admin-event-workspace .admin-section-main .admin-edit-form,
+  .admin-settings-danger {
+    padding: var(--space-5);
   }
 
   .admin-stat-card {
