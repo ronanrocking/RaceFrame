@@ -1399,8 +1399,16 @@ input[type="file"] {
 }
 
 .user-selfie-field {
+  width: min(100%, 32rem);
   justify-self: center;
   justify-items: center;
+  gap: var(--space-2);
+}
+
+.user-selfie-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
   gap: var(--space-2);
 }
 
@@ -1419,6 +1427,18 @@ input[type="file"] {
   margin-top: 0;
   justify-self: center;
   padding-top: 0;
+}
+
+.user-search-actions .admin-button-primary {
+  border-color: var(--rc-signal);
+  background: var(--rc-signal);
+  color: var(--rc-carbon);
+}
+
+.user-search-actions .admin-button-primary:hover {
+  border-color: var(--rc-carbon);
+  background: var(--rc-carbon);
+  color: var(--rc-white);
 }
 
 .user-results-section {

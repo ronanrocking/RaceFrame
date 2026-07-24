@@ -31,12 +31,6 @@
       </div>
     </div>
 
-    <div class="upload-event-meta user-search-meta">
-      <span>Slug: {{ event.slug }}</span>
-      <span>Date: {{ event.event_date if event.event_date else "Not set" }}</span>
-      <span>Location: {{ event.location if event.location else "Not set" }}</span>
-    </div>
-
     <form
       method="post"
       action="/user/events/{{ event.id }}/bib-only"
@@ -52,9 +46,11 @@
         <input type="text" name="participant_query" value="{{ search_term }}" placeholder="Enter your bib number" inputmode="numeric" required />
       </label>
       <label class="admin-field user-selfie-field">
-        <span class="user-selfie-title">Upload Selfies</span>
+        <span class="user-selfie-heading">
+          <span class="user-selfie-title">Search with Selfies</span>
+          <span class="user-selfie-note">Optional · Recommended</span>
+        </span>
         <input data-selfie-input type="file" name="selfie_files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple />
-        <span class="user-selfie-note">Optional · Recommended</span>
       </label>
       <div class="admin-form-actions user-search-actions">
         <button class="admin-button admin-button-primary" type="submit">Search</button>
@@ -120,6 +116,11 @@
 
 {% block scripts %}
   {{ super() }}
+  {% if face_search_session %}
+  <script nonce="{{ csp_nonce }}">
+    window.history.replaceState({}, document.title, window.location.pathname);
+  </script>
+  {% endif %}
   <script nonce="{{ csp_nonce }}">
     (() => {
       const form = document.querySelector("[data-user-search-form]");

@@ -126,7 +126,7 @@ async def admin_session_middleware(request: Request, call_next):
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             "<meta name='theme-color' content='#f2f0e8'>"
             "<title>Admin panel in use - RaceFrame</title>"
-            "<link rel='stylesheet' href='/static/admin.css?v=21'></head>"
+            "<link rel='stylesheet' href='/static/admin.css?v=22'></head>"
             "<body class='admin-theme system-state-page'><main class='system-state-shell'>"
             "<a class='site-brand system-state-brand' href='/admin'>"
             "<span class='site-brand-glyph' aria-hidden='true'></span>"
@@ -265,7 +265,7 @@ async def redirect_with_search_capability(
     capability = await run_in_threadpool(
         partial(bind_search_capability, request, db, event=event, search_session=search_session)
     )
-    response = redirect_with_message(f"/user/events/{event.id}", message=message, level=level)
+    response = redirect_with_message(f"/user/events/{event.id}?view=results", message=message, level=level)
     set_search_capability_cookie(response, event_id=str(event.id), capability=capability)
     return response
 
@@ -555,7 +555,9 @@ def user_event_search_page(
     search_term = ""
     results = []
     matched_participants = []
-    face_search_session, face_search_results = authorized_search_results(request, db, event=event)
+    face_search_session, face_search_results = (None, [])
+    if request.query_params.get("view") == "results":
+        face_search_session, face_search_results = authorized_search_results(request, db, event=event)
     if face_search_session is not None and face_search_session.participant is not None:
         search_term = face_search_session.participant.bib_number
 
