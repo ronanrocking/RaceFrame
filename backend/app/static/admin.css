@@ -1317,15 +1317,6 @@ input[type="file"] {
   line-height: 0.78;
 }
 
-.user-search-index {
-  color: var(--rc-rule);
-  font-family: var(--font-utility);
-  font-size: 6.5rem;
-  font-weight: 600;
-  letter-spacing: -0.065em;
-  line-height: 0.78;
-}
-
 .user-event-card h3,
 .user-photo-card h3 {
   margin: 0;
@@ -1362,37 +1353,35 @@ input[type="file"] {
   width: 100%;
 }
 
-.user-search-mode-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  border-top: 1px solid var(--rc-carbon);
-  border-bottom: 1px solid var(--rc-carbon);
-}
-
 .user-search-form {
+  width: min(100%, 42rem);
   min-width: 0;
-  align-content: start;
-  padding: var(--space-8);
+  display: grid;
+  gap: var(--space-6);
+  padding: 0;
 }
 
-.user-search-form:first-child {
-  border-right: 1px solid var(--rc-rule);
+.admin-section.user-search-section {
+  padding: var(--space-5) 0;
 }
 
-.user-search-index {
-  display: block;
-  margin-bottom: var(--space-8);
+.user-search-form-heading h3 {
+  margin: 0;
+  color: var(--rc-carbon);
+  font-family: var(--font-display);
+  font-size: var(--text-card);
+  letter-spacing: -0.025em;
+  line-height: 1.08;
 }
 
-.user-search-description {
-  max-width: 31rem;
-  margin: var(--space-4) 0 0;
-  color: var(--rc-concrete);
-  font-size: var(--text-small);
+.user-search-form .admin-field-label em {
+  margin-left: var(--space-2);
+  color: var(--rc-signal);
+  font-style: normal;
 }
 
 .user-search-actions {
-  margin-top: auto;
+  margin-top: 0;
 }
 
 .user-results-section {
@@ -1890,18 +1879,15 @@ input[type="file"] {
   .admin-edit-form-grid,
   .admin-edit-inline-fields,
   .admin-edit-participant-options,
-  .user-search-mode-grid,
   .upload-active-summary {
     grid-template-columns: 1fr;
   }
 
-  .admin-edit-option-block,
-  .user-search-form {
+  .admin-edit-option-block {
     padding: var(--space-6) 0;
   }
 
-  .admin-edit-option-left,
-  .user-search-form:first-child {
+  .admin-edit-option-left {
     border-right: 0;
     border-bottom: 1px solid var(--rc-rule);
   }
@@ -1989,10 +1975,6 @@ input[type="file"] {
 
   .user-event-meta {
     margin-top: var(--space-4);
-  }
-
-  .user-search-index {
-    font-size: 4.5rem;
   }
 
   .admin-photo-detail-layout {

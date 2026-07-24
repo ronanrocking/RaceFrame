@@ -37,45 +37,33 @@
       <span>Location: {{ event.location if event.location else "Not set" }}</span>
     </div>
 
-    <div class="user-search-mode-grid">
-      <form method="post" action="/user/events/{{ event.id }}/selfies" enctype="multipart/form-data" class="admin-form user-search-form user-selfie-search-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-        <div>
-          <span class="user-search-index">01</span>
-          <p class="admin-section-label">Recommended Search</p>
-          <h3>Bib + Face</h3>
-          <p class="user-search-description">Best coverage. Add clear face photos from different angles to reinforce bib evidence.</p>
-        </div>
-        <label class="admin-field">
-          <span class="admin-field-label">Participant Bib Or Name</span>
-          <input type="text" name="participant_query" value="{{ search_term }}" placeholder="Eg. 1042 or Asha Kumar" required />
-        </label>
-        <label class="admin-field">
-          <span class="admin-field-label">Face Photos From Different Angles</span>
-          <input type="file" name="selfie_files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple required />
-        </label>
-        <div class="admin-form-actions user-search-actions">
-          <button class="admin-button admin-button-secondary" type="submit">Upload And Match</button>
-        </div>
-      </form>
-
-      <form method="post" action="/user/events/{{ event.id }}/bib-only" class="admin-form user-search-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-        <div>
-          <span class="user-search-index">02</span>
-          <p class="admin-section-label">Fallback Search</p>
-          <h3>Bib Only</h3>
-          <p class="user-search-description">Uses strong OCR matches to build temporary face seeds when selfies are unavailable.</p>
-        </div>
-        <label class="admin-field">
-          <span class="admin-field-label">Participant Bib Or Name</span>
-          <input type="text" name="participant_query" value="{{ search_term }}" placeholder="Eg. 1042 or Asha Kumar" required />
-        </label>
-        <div class="admin-form-actions user-search-actions">
-          <button class="admin-button admin-button-secondary" type="submit">Search By Bib</button>
-        </div>
-      </form>
-    </div>
+    <form
+      method="post"
+      action="/user/events/{{ event.id }}/bib-only"
+      enctype="multipart/form-data"
+      class="admin-form user-search-form"
+      data-user-search-form
+      data-bib-only-action="/user/events/{{ event.id }}/bib-only"
+      data-selfie-action="/user/events/{{ event.id }}/selfies"
+    >
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <div class="user-search-form-heading">
+        <p class="admin-section-label">Search by race number</p>
+        <h3>Find your photos</h3>
+      </div>
+      <label class="admin-field">
+        <span class="admin-field-label">Bib Number <em>Required</em></span>
+        <input type="text" name="participant_query" value="{{ search_term }}" placeholder="Eg. 1042" inputmode="numeric" required />
+      </label>
+      <label class="admin-field user-selfie-field">
+        <span class="admin-field-label">Selfie Upload <em>Optional · Recommended</em></span>
+        <input data-selfie-input type="file" name="selfie_files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple />
+        <span class="admin-field-help">Add one or more clear face photos to strengthen your match.</span>
+      </label>
+      <div class="admin-form-actions user-search-actions">
+        <button class="admin-button admin-button-secondary" type="submit">Find Photos</button>
+      </div>
+    </form>
   </section>
 
   {% if face_search_session %}
@@ -132,4 +120,18 @@
       {% endif %}
     </section>
   {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script nonce="{{ csp_nonce }}">
+    (() => {
+      const form = document.querySelector("[data-user-search-form]");
+      const selfieInput = form && form.querySelector("[data-selfie-input]");
+      if (!form || !selfieInput) return;
+      form.addEventListener("submit", () => {
+        form.action = selfieInput.files.length ? form.dataset.selfieAction : form.dataset.bibOnlyAction;
+      });
+    })();
+  </script>
 {% endblock %}
