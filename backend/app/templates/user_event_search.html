@@ -47,21 +47,17 @@
       data-selfie-action="/user/events/{{ event.id }}/selfies"
     >
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-      <div class="user-search-form-heading">
-        <p class="admin-section-label">Search by race number</p>
-        <h3>Find your photos</h3>
-      </div>
-      <label class="admin-field">
-        <span class="admin-field-label">Bib Number <em>Required</em></span>
-        <input type="text" name="participant_query" value="{{ search_term }}" placeholder="Eg. 1042" inputmode="numeric" required />
+      <label class="user-bib-field">
+        <span class="sr-only">Bib Number</span>
+        <input type="text" name="participant_query" value="{{ search_term }}" placeholder="Enter your bib number" inputmode="numeric" required />
       </label>
       <label class="admin-field user-selfie-field">
-        <span class="admin-field-label">Selfie Upload <em>Optional · Recommended</em></span>
+        <span class="user-selfie-title">Upload Selfies</span>
         <input data-selfie-input type="file" name="selfie_files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple />
-        <span class="admin-field-help">Add one or more clear face photos to strengthen your match.</span>
+        <span class="user-selfie-note">Optional · Recommended</span>
       </label>
       <div class="admin-form-actions user-search-actions">
-        <button class="admin-button admin-button-secondary" type="submit">Find Photos</button>
+        <button class="admin-button admin-button-primary" type="submit">Search</button>
       </div>
     </form>
   </section>

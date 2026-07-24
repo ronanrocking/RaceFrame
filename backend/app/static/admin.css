@@ -1357,31 +1357,68 @@ input[type="file"] {
   width: min(100%, 42rem);
   min-width: 0;
   display: grid;
-  gap: var(--space-6);
+  gap: var(--space-5);
   padding: 0;
+  margin-inline: auto;
+  text-align: center;
 }
 
 .admin-section.user-search-section {
   padding: var(--space-5) 0;
 }
 
-.user-search-form-heading h3 {
-  margin: 0;
-  color: var(--rc-carbon);
-  font-family: var(--font-display);
-  font-size: var(--text-card);
-  letter-spacing: -0.025em;
-  line-height: 1.08;
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
 }
 
-.user-search-form .admin-field-label em {
-  margin-left: var(--space-2);
-  color: var(--rc-signal);
-  font-style: normal;
+.user-bib-field {
+  width: min(100%, 32rem);
+  margin-inline: auto;
+}
+
+.user-bib-field input {
+  width: 100%;
+  min-height: 4.25rem;
+  border: 0;
+  border-bottom: 2px solid var(--rc-carbon);
+  border-radius: 0;
+  background: transparent;
+  color: var(--rc-carbon);
+  font: 600 var(--text-body-lg) var(--font-body);
+  outline: none;
+  text-align: center;
+}
+
+.user-bib-field input:focus {
+  border-bottom-color: var(--rc-signal);
+}
+
+.user-selfie-field {
+  justify-self: center;
+  justify-items: center;
+  gap: var(--space-2);
+}
+
+.user-selfie-title {
+  color: var(--rc-carbon);
+  font-size: var(--text-small);
+  font-weight: 600;
+}
+
+.user-selfie-note {
+  color: var(--rc-concrete);
+  font-size: var(--text-micro);
 }
 
 .user-search-actions {
   margin-top: 0;
+  justify-self: center;
+  padding-top: 0;
 }
 
 .user-results-section {
