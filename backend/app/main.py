@@ -126,7 +126,7 @@ async def admin_session_middleware(request: Request, call_next):
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             "<meta name='theme-color' content='#f2f0e8'>"
             "<title>Admin panel in use - RaceFrame</title>"
-            "<link rel='stylesheet' href='/static/admin.css?v=24'></head>"
+            "<link rel='stylesheet' href='/static/admin.css?v=25'></head>"
             "<body class='admin-theme system-state-page'><main class='system-state-shell'>"
             "<a class='site-brand system-state-brand' href='/admin'>"
             "<span class='site-brand-glyph' aria-hidden='true'></span>"
