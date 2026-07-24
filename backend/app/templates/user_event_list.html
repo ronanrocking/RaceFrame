@@ -31,9 +31,8 @@
       <div class="user-event-grid">
         {% for item in events %}
           <article class="user-event-card">
-            <span class="user-event-index">{{ "%02d"|format(loop.index) }}</span>
-            <div class="user-event-card-copy">
-              <span class="admin-section-label">Event</span>
+            <div class="user-event-heading">
+              <span class="user-event-index">{{ "%02d"|format(loop.index) }}</span>
               <h3>{{ item.event.name }}</h3>
             </div>
             <div class="user-event-meta">

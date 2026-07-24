@@ -21,7 +21,7 @@
   --font-display: "Inter Tight", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
   --font-body: Inter, "Helvetica Neue", Arial, sans-serif;
   --font-utility: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", sans-serif;
-  --text-micro: 0.625rem;
+  --text-micro: 0.7rem;
   --text-label: 0.75rem;
   --text-meta: 0.8125rem;
   --text-small: 0.875rem;
@@ -1293,6 +1293,21 @@ input[type="file"] {
   padding: var(--space-6) 0 0;
 }
 
+.admin-section.user-events-section {
+  padding: var(--space-5) 0;
+}
+
+.user-events-section .admin-section-header {
+  border-top: 0;
+}
+
+.user-event-heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
 .user-event-index {
   color: var(--rc-rule);
   font-family: var(--font-utility);
@@ -1311,11 +1326,6 @@ input[type="file"] {
   line-height: 0.78;
 }
 
-.user-event-card-copy {
-  position: relative;
-  z-index: 1;
-}
-
 .user-event-card h3,
 .user-photo-card h3 {
   margin: 0;
@@ -1324,6 +1334,10 @@ input[type="file"] {
   font-size: var(--text-card);
   letter-spacing: -0.025em;
   line-height: 1.08;
+}
+
+.user-event-heading h3 {
+  min-width: 0;
 }
 
 .user-event-slug {
