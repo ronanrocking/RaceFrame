@@ -42,19 +42,24 @@
     >
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <label class="user-bib-field">
-        <span class="sr-only">Bib Number</span>
+        <span class="user-field-label">Bib number</span>
         <input type="text" name="participant_query" value="{{ search_term }}" placeholder="Enter your bib number" inputmode="numeric" required />
       </label>
-      <label class="admin-field user-selfie-field">
-        <span class="user-selfie-heading">
-          <span class="user-selfie-title">Search with Selfies</span>
-          <span class="user-selfie-note">Optional · Recommended</span>
+      <div class="user-search-divider" aria-hidden="true"><span>Improve your match</span></div>
+      <label class="user-selfie-field" data-selfie-dropzone>
+        <input class="sr-only" data-selfie-input type="file" name="selfie_files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple />
+        <span class="user-selfie-idle" data-selfie-idle>
+          <span class="user-selfie-title">Add a selfie</span>
+          <span class="user-selfie-note">Optional — helps improve matching</span>
         </span>
-        <input data-selfie-input type="file" name="selfie_files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple />
+        <img class="user-selfie-preview" data-selfie-preview alt="Selected selfie preview" hidden />
+        <span class="user-selfie-file-name" data-selfie-file-name hidden></span>
       </label>
+      <p class="user-search-inline-error" data-search-error role="alert" hidden></p>
       <div class="admin-form-actions user-search-actions">
-        <button class="admin-button admin-button-primary" type="submit">Search</button>
+        <button class="admin-button admin-button-primary" data-search-button type="submit">Find my photos</button>
       </div>
+      <p class="user-search-privacy">Your selfie is used only to search this event’s photos.</p>
     </form>
   </section>
 
@@ -125,9 +130,45 @@
     (() => {
       const form = document.querySelector("[data-user-search-form]");
       const selfieInput = form && form.querySelector("[data-selfie-input]");
-      if (!form || !selfieInput) return;
-      form.addEventListener("submit", () => {
+      const preview = form && form.querySelector("[data-selfie-preview]");
+      const idle = form && form.querySelector("[data-selfie-idle]");
+      const fileName = form && form.querySelector("[data-selfie-file-name]");
+      const error = form && form.querySelector("[data-search-error]");
+      const button = form && form.querySelector("[data-search-button]");
+      let previewUrl = "";
+      if (!form || !selfieInput || !preview || !idle || !fileName || !error || !button) return;
+
+      selfieInput.addEventListener("change", () => {
+        const [file] = selfieInput.files;
+        error.hidden = true;
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = "";
+        if (!file) {
+          preview.hidden = true;
+          fileName.hidden = true;
+          idle.hidden = false;
+          return;
+        }
+        if (!file.type.startsWith("image/")) {
+          selfieInput.value = "";
+          error.textContent = "Choose a JPG, PNG, or WebP image.";
+          error.hidden = false;
+          return;
+        }
+        previewUrl = URL.createObjectURL(file);
+        preview.src = previewUrl;
+        preview.hidden = false;
+        idle.hidden = true;
+        fileName.textContent = selfieInput.files.length === 1 ? file.name : `${selfieInput.files.length} selfies selected`;
+        fileName.hidden = false;
+      });
+
+      form.addEventListener("submit", (event) => {
+        error.hidden = true;
+        if (!form.checkValidity()) return;
         form.action = selfieInput.files.length ? form.dataset.selfieAction : form.dataset.bibOnlyAction;
+        button.disabled = true;
+        button.textContent = "Searching…";
       });
     })();
   </script>
