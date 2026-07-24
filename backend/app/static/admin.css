@@ -1479,6 +1479,11 @@ input[type="file"] {
   border: 1px solid var(--rc-carbon);
 }
 
+.user-selfie-preview[hidden],
+.user-selfie-file-name[hidden] {
+  display: none !important;
+}
+
 .user-selfie-file-name,
 .user-search-privacy {
   color: var(--rc-concrete);
