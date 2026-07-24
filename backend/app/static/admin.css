@@ -306,8 +306,7 @@ input[type="file"] {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   align-items: start;
   gap: var(--space-6);
-  padding: var(--space-6) 0 var(--space-10);
-  border-bottom: 1px solid var(--rc-carbon);
+  padding: var(--space-10) 0;
 }
 
 .page-header-copy {
@@ -590,7 +589,7 @@ input[type="file"] {
 }
 
 .admin-section-header > div {
-  grid-column: 3 / span 7;
+  grid-column: 1 / span 8;
 }
 
 .admin-section-label,
@@ -948,7 +947,16 @@ input[type="file"] {
   font-size: var(--text-label);
 }
 
-.admin-dashboard-stat strong,
+.admin-dashboard-stat strong {
+  margin: 0;
+  color: var(--rc-carbon);
+  font-family: var(--font-utility);
+  font-size: clamp(2.5rem, 4vw, 4.25rem);
+  font-weight: 600;
+  letter-spacing: -0.065em;
+  line-height: 0.78;
+}
+
 .admin-stat-value {
   margin: 0;
   color: var(--rc-carbon);
@@ -1132,33 +1140,14 @@ input[type="file"] {
   color: var(--rc-carbon);
 }
 
-.upload-intro {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: var(--space-6);
-  padding: var(--space-16) 0;
-  border-bottom: 1px solid var(--rc-carbon);
+.upload-events-page .admin-dashboard-table-section {
+  padding-top: var(--space-10);
+  border-bottom: 0;
 }
 
-.upload-intro-index {
-  grid-column: 1 / span 2;
-  color: var(--rc-signal);
-  font-family: var(--font-utility);
-  font-size: clamp(4rem, 7vw, 7rem);
-  font-weight: 600;
-  letter-spacing: -0.065em;
-  line-height: 0.78;
-}
-
-.upload-intro p {
-  grid-column: 4 / span 7;
-  margin: 0;
-  color: var(--rc-graphite);
-  font-family: var(--font-display);
-  font-size: clamp(1.75rem, 3vw, 2.8rem);
-  font-weight: 600;
-  letter-spacing: -0.035em;
-  line-height: 1.08;
+.upload-events-page .admin-section-header {
+  padding-top: 0;
+  border-top: 0;
 }
 
 .upload-photo-form {
@@ -1295,16 +1284,24 @@ input[type="file"] {
 
 .user-event-card {
   position: relative;
-  min-height: 31rem;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-8);
+  gap: var(--space-5);
   overflow: hidden;
   border-top: 1px solid var(--rc-carbon);
   padding: var(--space-6) 0 0;
 }
 
-.user-event-index,
+.user-event-index {
+  color: var(--rc-rule);
+  font-family: var(--font-utility);
+  font-size: 3.25rem;
+  font-weight: 600;
+  letter-spacing: -0.065em;
+  line-height: 0.78;
+}
+
 .user-search-index {
   color: var(--rc-rule);
   font-family: var(--font-utility);
@@ -1336,14 +1333,15 @@ input[type="file"] {
 }
 
 .user-event-meta {
-  display: grid;
-  margin: auto 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
 }
 
 .user-event-meta span {
-  border-right: 0;
-  border-bottom: 1px solid var(--rc-rule-soft);
-  padding-inline: 0;
+  border-right: 1px solid var(--rc-rule);
+  border-bottom: 0;
+  padding-inline: var(--space-3);
 }
 
 .user-event-card .admin-button {
@@ -1684,7 +1682,7 @@ input[type="file"] {
   }
 
   .admin-section-header > div {
-    grid-column: 2 / span 5;
+    grid-column: 1 / span 6;
   }
 
   .admin-panel-meta {
@@ -1828,7 +1826,7 @@ input[type="file"] {
     flex-direction: column;
     align-items: stretch;
     justify-content: flex-start;
-    padding: var(--space-4) 0 var(--space-8);
+    padding: var(--space-10) 0 var(--space-8);
   }
 
   .page-header-copy h1,
@@ -1912,7 +1910,10 @@ input[type="file"] {
     border-right: 0;
   }
 
-  .admin-dashboard-stat strong,
+  .admin-dashboard-stat strong {
+    font-size: 2.75rem;
+  }
+
   .admin-stat-value {
     font-size: 3.75rem;
   }
@@ -1945,16 +1946,6 @@ input[type="file"] {
 
   .admin-danger-row .admin-button {
     width: 100%;
-  }
-
-  .upload-intro {
-    display: block;
-    padding: var(--space-12) 0;
-  }
-
-  .upload-intro-index {
-    display: block;
-    margin-bottom: var(--space-8);
   }
 
   .upload-progress-stat-grid {

@@ -15,13 +15,6 @@
 {% block header_actions %}{% endblock %}
 
 {% block content %}
-  {% set metrics = namespace(published=0) %}
-  {% for item in events %}
-    {% if item.event.status == "published" %}
-      {% set metrics.published = metrics.published + 1 %}
-    {% endif %}
-  {% endfor %}
-
   {% if message %}
     <p class="message message-success admin-message">{{ message }}</p>
   {% endif %}
@@ -29,11 +22,11 @@
   <section class="admin-dashboard-strip">
     <div class="admin-dashboard-stat">
       <span>Events</span>
-      <strong>{{ metrics.published }}</strong>
+      <strong>{{ events|length }}</strong>
     </div>
     <div class="admin-dashboard-stat">
-      <span>Drafts</span>
-      <strong>{{ events|length - metrics.published }}</strong>
+      <span>Total Photos</span>
+      <strong>{{ total_photo_count }}</strong>
     </div>
     <div class="admin-dashboard-stat">
       <span>Participants</span>
