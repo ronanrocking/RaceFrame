@@ -191,7 +191,6 @@
 
         summary.hidden = current.total === 0;
         queue.hidden = current.total === 0;
-        actions.hidden = current.total === 0;
         batchCount.textContent = `${current.total} file${current.total === 1 ? "" : "s"} selected`;
         batchMeta.textContent = state.started
           ? `${current.completed}/${current.total} done | ${current.uploading + current.processing + current.retrying} active | ${current.queued} queued`
@@ -229,9 +228,11 @@
           const attemptLabel = item.attempt > 1 ? `, ${item.attempt} attempts` : "";
           return `<li><strong>${escapeHtml(item.file.name)}</strong><span>${escapeHtml(item.note)}${attemptLabel}</span></li>`;
         }).join("");
-        retryButton.hidden = current.failed === 0;
         const hasActiveUploads = current.uploading + current.processing + current.retrying > 0;
-        pauseButton.hidden = !state.started || current.completed >= current.total || (!hasActiveUploads && !state.paused);
+        const uploadRunActive = state.started && (hasActiveUploads || state.paused);
+        actions.hidden = !uploadRunActive;
+        retryButton.hidden = !uploadRunActive || current.failed === 0;
+        pauseButton.hidden = !uploadRunActive || (!hasActiveUploads && !state.paused);
         pauseButton.textContent = state.paused ? "Resume" : "Pause";
       };
 
