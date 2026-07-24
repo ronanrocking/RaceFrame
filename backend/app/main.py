@@ -126,7 +126,7 @@ async def admin_session_middleware(request: Request, call_next):
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             "<meta name='theme-color' content='#f2f0e8'>"
             "<title>Admin panel in use - RaceFrame</title>"
-            "<link rel='stylesheet' href='/static/admin.css?v=25'></head>"
+            "<link rel='stylesheet' href='/static/admin.css?v=26'></head>"
             "<body class='admin-theme system-state-page'><main class='system-state-shell'>"
             "<a class='site-brand system-state-brand' href='/admin'>"
             "<span class='site-brand-glyph' aria-hidden='true'></span>"
@@ -792,6 +792,7 @@ def photographer_event_upload_page(request: Request, event_id: str, db: Session 
         "event": event,
         "participant_count": count_event_participants(db, event_id=event.id),
         "photo_stats": build_event_photo_stats(db, event_id=event.id),
+        "max_photo_upload_megabytes": max(1, round(settings.max_photo_upload_bytes / 1024 / 1024)),
         "message": request.query_params.get("message"),
         "message_level": request.query_params.get("level", "success"),
         "nav_home_url": "/upload",

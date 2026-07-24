@@ -1155,6 +1155,44 @@ input[type="file"] {
   margin-inline: auto;
 }
 
+.upload-dropzone {
+  min-height: 15rem;
+  display: grid;
+  place-content: center;
+  gap: var(--space-3);
+  border: 1px dashed var(--rc-carbon);
+  background: var(--rc-chalk);
+  padding: var(--space-8);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color var(--duration-fast) ease, background-color var(--duration-fast) ease;
+}
+
+.upload-dropzone:hover,
+.upload-dropzone:focus-within,
+.upload-dropzone.is-dragging {
+  border-color: var(--rc-signal);
+  background: #fff5e9;
+}
+
+.upload-dropzone-title {
+  color: var(--rc-carbon);
+  font-family: var(--font-display);
+  font-size: var(--text-card);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.08;
+}
+
+.upload-dropzone-details {
+  color: var(--rc-concrete);
+  font-family: var(--font-utility);
+  font-size: var(--text-label);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .upload-event-meta,
 .user-event-meta {
   display: flex;
@@ -1174,6 +1212,12 @@ input[type="file"] {
   padding: var(--space-2) var(--space-4);
   color: var(--rc-concrete);
   font-size: var(--text-micro);
+}
+
+.upload-detail-page .upload-event-meta span {
+  min-height: 3.25rem;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-label);
 }
 
 .upload-batch-summary {

@@ -13,7 +13,7 @@
 {% block header_title %}Upload Photos{% endblock %}
 {% block header_subtitle %}<p class="admin-header-subtitle">A controlled two-file queue with automatic retries for temporary network and server failures.</p>{% endblock %}
 {% block header_actions %}
-  <a class="admin-button admin-button-secondary" href="/upload">Back to Events</a>
+  <a class="admin-button admin-button-secondary" href="/upload">← Back to Events</a>
 {% endblock %}
 
 {% block content %}
@@ -43,10 +43,10 @@
 
     <form method="post" action="/upload/events/{{ event.id }}" enctype="multipart/form-data" class="admin-form upload-photo-form" data-upload-form data-concurrency="2" data-max-attempts="3">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-      <label class="admin-field upload-file-field">
-        <span class="admin-field-label">Photo Files</span>
-        <span class="admin-field-help">JPG, PNG, or WebP. Select multiple originals; uploads begin after selection.</span>
-        <input data-upload-input type="file" name="photo_files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple required />
+      <label class="upload-dropzone" data-upload-dropzone>
+        <input class="sr-only" data-upload-input type="file" name="photo_files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple required />
+        <span class="upload-dropzone-title">Drop photos here or choose files.</span>
+        <span class="upload-dropzone-details">JPG, PNG, or WebP · Up to {{ max_photo_upload_megabytes }} MB each · Multiple files supported</span>
       </label>
 
       <div class="upload-batch-summary" data-batch-summary hidden>
@@ -120,6 +120,7 @@
       if (!form) return;
 
       const input = form.querySelector("[data-upload-input]");
+      const dropzone = form.querySelector("[data-upload-dropzone]");
       const summary = form.querySelector("[data-batch-summary]");
       const batchCount = form.querySelector("[data-batch-count]");
       const batchMessage = form.querySelector("[data-batch-message]");
@@ -228,8 +229,9 @@
           const attemptLabel = item.attempt > 1 ? `, ${item.attempt} attempts` : "";
           return `<li><strong>${escapeHtml(item.file.name)}</strong><span>${escapeHtml(item.note)}${attemptLabel}</span></li>`;
         }).join("");
-        retryButton.hidden = current.failed === 0 || state.started;
-        pauseButton.hidden = current.completed >= current.total;
+        retryButton.hidden = current.failed === 0;
+        const hasActiveUploads = current.uploading + current.processing + current.retrying > 0;
+        pauseButton.hidden = !state.started || current.completed >= current.total || (!hasActiveUploads && !state.paused);
         pauseButton.textContent = state.paused ? "Resume" : "Pause";
       };
 
@@ -239,8 +241,8 @@
         window.requestAnimationFrame(renderQueueNow);
       };
 
-      const buildItems = () => {
-        state.items = Array.from(input.files || []).map((file, index) => {
+      const buildItems = (files = input.files) => {
+        state.items = Array.from(files || []).map((file, index) => {
           return {
             id: `${file.name}-${file.size}-${index}`,
             idempotencyKey: window.crypto && window.crypto.randomUUID
@@ -394,7 +396,24 @@
         xhr.send(formData);
       };
 
-      input.addEventListener("change", buildItems);
+      input.addEventListener("change", () => buildItems());
+
+      ["dragenter", "dragover"].forEach((eventName) => {
+        dropzone.addEventListener(eventName, (event) => {
+          event.preventDefault();
+          dropzone.classList.add("is-dragging");
+        });
+      });
+      ["dragleave", "drop"].forEach((eventName) => {
+        dropzone.addEventListener(eventName, (event) => {
+          event.preventDefault();
+          dropzone.classList.remove("is-dragging");
+        });
+      });
+      dropzone.addEventListener("drop", (event) => {
+        const files = event.dataTransfer && event.dataTransfer.files;
+        if (files && files.length) buildItems(files);
+      });
 
       pauseButton.addEventListener("click", () => {
         state.paused = !state.paused;
