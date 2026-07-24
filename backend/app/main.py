@@ -45,7 +45,7 @@ from .config import settings
 from .db import Base, SessionLocal, engine, get_db
 from .face import create_bib_only_face_search_session, ingest_face_search_upload
 from .health import application_ready
-from .models import FaceSearchJob, Participant, PhotoJob
+from .models import FaceSearchJob, Participant, Photo, PhotoJob
 from .metrics import metrics_response, require_metrics_token
 from .observability import RequestContextMiddleware, configure_logging
 from .participant_lookup import normalize_name_lookup
@@ -494,7 +494,7 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResp
         "request": request,
         "title": "RaceFrame Admin Dashboard",
         "events": list_events(db),
-        "total_photo_count": db.scalar(select(func.count(PhotoJob.id))) or 0,
+        "total_photo_count": db.scalar(select(func.count(Photo.id))) or 0,
         "message": request.query_params.get("message"),
         "message_level": request.query_params.get("level", "success"),
     }

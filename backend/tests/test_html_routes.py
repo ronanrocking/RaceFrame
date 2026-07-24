@@ -70,3 +70,17 @@ def test_event_search_results_only_render_on_the_explicit_results_view(monkeypat
 
     assert results_response.status_code == 200
     search_results.assert_called_once()
+
+
+def test_admin_dashboard_counts_uploaded_photos_not_processing_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    class DashboardDb:
+        def scalar(self, statement):
+            assert statement.get_final_froms()[0].name == "photos"
+            return 7
+
+    monkeypatch.setattr(main_module, "list_events", lambda _db: [])
+
+    response = main_module.admin_dashboard(browser_request("/admin"), DashboardDb())
+
+    assert response.status_code == 200
+    assert b">7<" in response.body
