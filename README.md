@@ -94,11 +94,8 @@ audits, secret/static analysis, Docker builds, container CVE scans, and CodeQL.
 Release tags publish commit-addressed GHCR images plus a manifest containing
 their immutable digests; production Compose accepts digests only.
 
-For routine production releases, use the single-command deploy helper with the
-two digest references from that manifest. It drains the worker, snapshots both
-host configurations, runs the Alembic migration, deploys backend then worker,
-and restores the changed service image automatically if it cannot start:
-
-```powershell
-.\scripts\deploy-production.ps1 -BackendImage 'ghcr.io/ronanrocking/raceframe-backend@sha256:...' -WorkerImage 'ghcr.io/ronanrocking/raceframe-worker@sha256:...'
-```
+For routine production releases, use the direct OCI deployment procedure in
+the production runbook. It copies the reviewed local commit to both hosts,
+builds commit-tagged local images, snapshots configuration, migrates the
+backend, and starts the matching worker. GitHub CI and image publication are
+optional checks, not deployment dependencies.

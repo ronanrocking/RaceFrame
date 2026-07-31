@@ -67,16 +67,17 @@ Never stamp it based only on its age or application version.
    off-host backup. Routine additive application migrations may use the
    automated deploy helper, which retains a local configuration snapshot and
    automatically restores a service image when startup fails.
-3. Use the one-command helper from a trusted operator workstation with the
-   immutable digest references in the release manifest:
+3. For routine direct deployment, copy the reviewed full Git commit from the
+   trusted operator workstation to a unique `~/raceframe/releases/<commit>`
+   directory on each OCI host, build local images tagged
+   `raceframe-backend:direct-<commit>` and
+   `raceframe-worker:direct-<commit>`, then drain the worker, migrate/restart
+   the backend, and start the matching worker. Keep an `.env.deploy-backup-*`
+   snapshot before changing either image reference.
 
-   ```powershell
-   .\scripts\deploy-production.ps1 -BackendImage 'ghcr.io/ronanrocking/raceframe-backend@sha256:...' -WorkerImage 'ghcr.io/ronanrocking/raceframe-worker@sha256:...'
-   ```
-
-   It drains the old worker, migrates and checks backend readiness, then starts
-   the matching worker. It never logs secret values, builds on a production
-   host, or accepts mutable image tags.
+   The direct path must still verify `/readyz`, the schema revision, worker
+   process state, and an unauthenticated `/internal/metrics` denial. GitHub CI
+   and GHCR publication are optional checks; they are not deployment gates.
 4. On the first Alembic adoption only, repeat the rehearsed role transfer and
    `alembic stamp 20260718_0001` with the exact production backup available.
    Replace any prerelease `WORKER_JOB_LEASE_SECONDS`,
