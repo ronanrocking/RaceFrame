@@ -9,11 +9,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .config import settings
-from .face import exact_bib_match_values, score_bib_evidence, upsert_final_photo_participant_match
+from .face import upsert_final_photo_participant_match
 from .models import (
     Event,
     FaceParticipantMatch,
@@ -25,6 +25,7 @@ from .models import (
     PhotoJob,
     PhotoParticipantMatch,
     PhotoTextDetection,
+    SearchSessionPhotoResult,
 )
 from .maintenance import enqueue_object_deletion, process_object_deletions
 from .participant_lookup import normalize_bib_lookup
@@ -74,6 +75,8 @@ class UserSearchPhotoItem:
     matched_participants: list[Participant]
     direct_match_values: list[str]
     evidence_labels: list[str]
+    face_count: int = 0
+    result_cursor: str | None = None
 
 
 def utc_now() -> datetime:
@@ -259,11 +262,28 @@ def list_event_photo_items(session: Session, *, event_id: uuid.UUID) -> list[Pho
     return items
 
 
+def _encode_search_result_cursor(*, rank: int, photo_id: uuid.UUID) -> str:
+    return f"{rank}:{photo_id}"
+
+
+def _decode_search_result_cursor(cursor: str | None) -> tuple[int, uuid.UUID] | None:
+    if not cursor:
+        return None
+    try:
+        rank_text, photo_text = cursor.split(":", 1)
+        rank = int(rank_text)
+        photo_id = uuid.UUID(photo_text)
+    except (TypeError, ValueError):
+        return None
+    return (rank, photo_id) if rank > 0 else None
+
+
 def list_face_search_photo_items(
     session: Session,
     *,
     event: Event,
     face_session_id: str,
+    cursor: str | None = None,
 ) -> tuple[FaceSearchSession | None, list[UserSearchPhotoItem]]:
     try:
         parsed_id = uuid.UUID(str(face_session_id))
@@ -275,109 +295,69 @@ def list_face_search_photo_items(
         .where(FaceSearchSession.id == parsed_id, FaceSearchSession.event_id == event.id)
         .options(
             selectinload(FaceSearchSession.images),
-            selectinload(FaceSearchSession.jobs),
             selectinload(FaceSearchSession.participant),
         )
     ).scalar_one_or_none()
     if search_session is None:
         return None, []
+    page_size = max(1, min(settings.search_result_page_size, 48))
+    statement = (
+        select(SearchSessionPhotoResult, Photo)
+        .join(Photo, Photo.id == SearchSessionPhotoResult.photo_id)
+        .where(
+            SearchSessionPhotoResult.search_session_id == search_session.id,
+            SearchSessionPhotoResult.event_id == event.id,
+        )
+        .order_by(SearchSessionPhotoResult.rank.asc(), SearchSessionPhotoResult.photo_id.asc())
+        .limit(page_size)
+    )
+    decoded_cursor = _decode_search_result_cursor(cursor)
+    if decoded_cursor is not None:
+        rank, photo_id = decoded_cursor
+        statement = statement.where(
+            or_(
+                SearchSessionPhotoResult.rank > rank,
+                and_(SearchSessionPhotoResult.rank == rank, SearchSessionPhotoResult.photo_id > photo_id),
+            )
+        )
 
-    participant = search_session.participant
-    if participant is None:
-        return search_session, list_legacy_face_search_photo_items(session, event=event, search_session=search_session)
+    rows = session.execute(statement).all()
+    return search_session, [
+        UserSearchPhotoItem(
+            photo=photo,
+            photo_url=safe_photo_preview_url(photo),
+            matched_participants=[],
+            direct_match_values=[],
+            evidence_labels=list(result.evidence_labels or []),
+            face_count=result.face_count,
+            result_cursor=_encode_search_result_cursor(rank=result.rank, photo_id=result.photo_id),
+        )
+        for result, photo in rows
+    ]
 
-    is_bib_only_session = len(search_session.images) == 0
-    score_rows = session.execute(
-        select(FaceSearchResult.photo_id, func.max(FaceSearchResult.similarity_score).label("best_score"))
-        .where(FaceSearchResult.search_session_id == search_session.id, FaceSearchResult.event_id == event.id)
-        .group_by(FaceSearchResult.photo_id)
-        .order_by(func.max(FaceSearchResult.similarity_score).desc())
-        .limit(settings.max_search_results)
-    ).all()
-    best_face_score_by_photo = {photo_id: float(score) for photo_id, score in score_rows}
 
-    ocr_photo_ids = list(
+def count_face_search_photo_items(session: Session, *, search_session_id: uuid.UUID) -> int:
+    return int(
         session.execute(
-            select(PhotoParticipantMatch.photo_id)
-            .where(
-                PhotoParticipantMatch.event_id == event.id,
-                PhotoParticipantMatch.participant_id == participant.id,
-                PhotoParticipantMatch.match_source.in_(("ocr", "ocr+face")),
+            select(func.count(SearchSessionPhotoResult.id)).where(
+                SearchSessionPhotoResult.search_session_id == search_session_id
             )
-            .order_by(PhotoParticipantMatch.created_at.desc())
-            .limit(settings.max_search_results)
-        ).scalars()
-    )
-    candidate_photo_ids = list(dict.fromkeys([*best_face_score_by_photo, *ocr_photo_ids]))[: settings.max_search_results]
-    if not candidate_photo_ids:
-        return search_session, []
-
-    photos = (
-        session.execute(
-            select(Photo)
-            .where(Photo.event_id == event.id, Photo.id.in_(candidate_photo_ids))
-            .options(
-                selectinload(Photo.matches).selectinload(PhotoParticipantMatch.participant),
-                selectinload(Photo.detections),
-                selectinload(Photo.face_detections),
-                selectinload(Photo.face_matches).selectinload(FaceParticipantMatch.participant),
-            )
-            .order_by(Photo.created_at.desc())
-        )
-        .scalars()
-        .unique()
-        .all()
+        ).scalar_one()
     )
 
-    items: list[UserSearchPhotoItem] = []
-    for photo in photos:
-        face_score = best_face_score_by_photo.get(photo.id)
-        face_strength = classify_face_score(face_score)
-        if is_bib_only_session:
-            exact_bib_values = exact_bib_match_values(photo.detections, participant.bib_number)
-            bib_strength = "strong" if exact_bib_values else "none"
-            if face_strength != "strong" and bib_strength != "strong":
-                continue
-            bib_values = exact_bib_values
-        else:
-            bib_evidence = score_bib_evidence(photo.detections, participant.bib_number)
-            if not should_accept_hybrid_result(face_strength=face_strength, bib_strength=bib_evidence.strength):
-                continue
-            bib_strength = bib_evidence.strength
-            bib_values = bib_evidence.matched_values
 
-        labels = build_hybrid_evidence_labels(
-            face_score=face_score,
-            face_strength=face_strength,
-            bib_strength=bib_strength,
-            bib_values=bib_values,
-        )
-        labels.extend(build_photo_evidence_labels(photo, matched_participant_ids=[participant.id]))
-        items.append(
-            UserSearchPhotoItem(
-                photo=photo,
-                photo_url=safe_photo_preview_url(photo),
-                matched_participants=[participant],
-                direct_match_values=list(bib_values),
-                evidence_labels=labels,
-            )
-        )
-
-    items.sort(
-        key=lambda item: (
-            best_face_score_by_photo.get(item.photo.id, 0.0),
-            1
-            if (
-                exact_bib_match_values(item.photo.detections, participant.bib_number)
-                if is_bib_only_session
-                else score_bib_evidence(item.photo.detections, participant.bib_number).strength == "strong"
-            )
-            else 0,
-            item.photo.created_at,
-        ),
-        reverse=True,
-    )
-    return search_session, items
+def search_session_allows_photo(session: Session, *, event_id: uuid.UUID, search_session_id: uuid.UUID, photo_id: str) -> bool:
+    try:
+        parsed_photo_id = uuid.UUID(str(photo_id))
+    except ValueError:
+        return False
+    return session.execute(
+        select(SearchSessionPhotoResult.id).where(
+            SearchSessionPhotoResult.event_id == event_id,
+            SearchSessionPhotoResult.search_session_id == search_session_id,
+            SearchSessionPhotoResult.photo_id == parsed_photo_id,
+        ).limit(1)
+    ).scalar_one_or_none() is not None
 
 
 def list_legacy_face_search_photo_items(
@@ -425,49 +405,6 @@ def list_legacy_face_search_photo_items(
             )
         )
     return items
-
-
-def classify_face_score(score: float | None) -> str:
-    if score is None:
-        return "none"
-    if score >= settings.face_strong_similarity_threshold:
-        return "strong"
-    if score >= settings.face_medium_similarity_threshold:
-        return "medium"
-    if score >= settings.face_candidate_similarity_threshold:
-        return "weak"
-    return "none"
-
-
-def should_accept_hybrid_result(*, face_strength: str, bib_strength: str) -> bool:
-    if face_strength == "strong" or bib_strength == "strong":
-        return True
-    if face_strength == "medium" and bib_strength == "weak":
-        return True
-    return False
-
-
-def build_hybrid_evidence_labels(
-    *,
-    face_score: float | None,
-    face_strength: str,
-    bib_strength: str,
-    bib_values: tuple[str, ...],
-) -> list[str]:
-    labels = []
-    if bib_strength == "strong":
-        labels.append("Strong bib match")
-    elif bib_strength == "weak":
-        labels.append("Partial bib match")
-
-    if face_score is not None and face_strength != "none":
-        labels.append(f"{face_strength.title()} face score {face_score:.2f}")
-    elif bib_strength == "strong":
-        labels.append("Accepted by bib; no usable face match")
-
-    if bib_values:
-        labels.append(f"Matched text: {', '.join(bib_values)}")
-    return labels
 
 
 def get_event_photo(session: Session, *, event_id: uuid.UUID, photo_id: str) -> Photo | None:

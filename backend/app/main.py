@@ -9,7 +9,7 @@ from functools import partial
 from html import escape
 from pathlib import Path
 from urllib.parse import urlencode
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -43,15 +43,16 @@ from .admin import (
 from .audit_log import append_admin_audit
 from .config import settings
 from .db import Base, SessionLocal, engine, get_db
-from .face import create_bib_only_face_search_session, ingest_face_search_upload
+from .face import enqueue_bib_only_face_search_session, ingest_face_search_upload
 from .health import application_ready
-from .models import FaceSearchJob, Participant, Photo, PhotoJob
+from .models import BibSearchJob, FaceSearchJob, FaceSearchSession, Participant, Photo, PhotoJob
 from .metrics import metrics_response, require_metrics_token
 from .observability import RequestContextMiddleware, configure_logging
 from .participant_lookup import normalize_name_lookup
 from .photographer import (
     build_event_photo_stats,
     count_event_participants,
+    count_face_search_photo_items,
     delete_all_event_photos,
     delete_photo,
     generate_photo_access_url,
@@ -64,6 +65,7 @@ from .photographer import (
     normalize_match_token,
     rebuild_event_photo_matches,
     safe_photo_access_url,
+    search_session_allows_photo,
 )
 from .rate_limits import hit_persistent_limit
 from .worker_api import router as worker_router
@@ -225,18 +227,19 @@ def bind_search_capability(request: Request, db: Session, *, event, search_sessi
     return capability
 
 
-def authorized_search_results(request: Request, db: Session, *, event):
+def authorized_search_session(request: Request, db: Session, *, event) -> FaceSearchSession | None:
     capability = request_search_capability(request, event_id=str(event.id))
     if capability is None:
-        return None, []
-
-    search_session, results = list_face_search_photo_items(
-        db,
-        event=event,
-        face_session_id=capability.session_id,
-    )
+        return None
+    try:
+        session_id = UUID(capability.session_id)
+    except (TypeError, ValueError):
+        return None
+    search_session = db.execute(
+        select(FaceSearchSession).where(FaceSearchSession.id == session_id, FaceSearchSession.event_id == event.id)
+    ).scalar_one_or_none()
     if search_session is None:
-        return None, []
+        return None
     expires_at = getattr(search_session, "expires_at", None)
     stored_capability_hash = getattr(search_session, "capability_hash", None)
     stored_owner_hash = getattr(search_session, "owner_binding_hash", None)
@@ -249,8 +252,15 @@ def authorized_search_results(request: Request, db: Session, *, event):
         or not hmac.compare_digest(stored_owner_hash, capability.owner_hash)
         or not hmac.compare_digest(stored_owner_hash, owner_binding_hash(request.state.visitor_id))
     ):
+        return None
+    return search_session
+
+
+def authorized_search_results(request: Request, db: Session, *, event, cursor: str | None = None):
+    search_session = authorized_search_session(request, db, event=event)
+    if search_session is None:
         return None, []
-    return search_session, results
+    return list_face_search_photo_items(db, event=event, face_session_id=str(search_session.id), cursor=cursor)
 
 
 async def redirect_with_search_capability(
@@ -556,8 +566,14 @@ def user_event_search_page(
     results = []
     matched_participants = []
     face_search_session, face_search_results = (None, [])
+    next_cursor = None
+    search_result_total = 0
     if request.query_params.get("view") == "results":
         face_search_session, face_search_results = authorized_search_results(request, db, event=event)
+        if face_search_session is not None:
+            search_result_total = count_face_search_photo_items(db, search_session_id=face_search_session.id)
+            if len(face_search_results) >= min(max(settings.search_result_page_size, 1), 48):
+                next_cursor = face_search_results[-1].result_cursor
     if face_search_session is not None and face_search_session.participant is not None:
         search_term = face_search_session.participant.bib_number
 
@@ -569,6 +585,8 @@ def user_event_search_page(
         "results": results,
         "face_search_session": face_search_session,
         "face_search_results": face_search_results,
+        "search_result_total": search_result_total,
+        "next_result_cursor": next_cursor,
         "matched_participants": matched_participants,
         "message": request.query_params.get("message"),
         "message_level": request.query_params.get("level", "success"),
@@ -700,25 +718,33 @@ async def user_bib_only_search(
             level="error",
         )
 
-    face_search_session, seed_count = await run_in_threadpool(
+    await run_in_threadpool(
         partial(
-            create_bib_only_face_search_session,
+            ensure_job_capacity,
+            db,
+            model=BibSearchJob,
+            limit=settings.max_face_search_backlog,
+            expected_new_jobs=1,
+            detail="Search processing is temporarily full. Please retry shortly.",
+        )
+    )
+
+    face_search_session = await run_in_threadpool(
+        partial(
+            enqueue_bib_only_face_search_session,
             db,
             event_id=event.id,
             participant=participant,
         )
     )
-    message = (
-        "Started bib-only reinforced search. "
-        f"Temporary face seeds found: {seed_count}."
-    )
+    message = "Search queued. Your results will appear automatically when processing finishes."
     return await redirect_with_search_capability(
         request,
         db,
         event=event,
         search_session=face_search_session,
         message=message,
-        level="success" if seed_count else "error",
+        level="success",
     )
 
 
@@ -746,17 +772,61 @@ def find_event_participant(db: Session, *, event_id, query: str) -> Participant 
     return exact_name_matches[0] if len(exact_name_matches) == 1 else None
 
 
+@app.get("/user/events/{event_id}/results")
+def user_search_results_page(
+    request: Request,
+    event_id: str,
+    cursor: str | None = None,
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Return one small, capability-authorized page of materialized result cards."""
+
+    event = get_published_event(db, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Published event not found.")
+    search_session, items = authorized_search_results(request, db, event=event, cursor=cursor)
+    if search_session is None:
+        raise HTTPException(status_code=404, detail="Search results not found.")
+
+    page_size = min(max(settings.search_result_page_size, 1), 48)
+    next_cursor = items[-1].result_cursor if len(items) >= page_size else None
+    return JSONResponse(
+        {
+            "status": search_session.status,
+            "result_count": count_face_search_photo_items(db, search_session_id=search_session.id),
+            "next_cursor": next_cursor,
+            "items": [
+                {
+                    "photo_id": str(item.photo.id),
+                    "file_name": item.photo.file_name,
+                    "photo_url": item.photo_url,
+                    "evidence_labels": item.evidence_labels,
+                    "face_count": item.face_count,
+                    "download_url": f"/user/events/{event.id}/photos/{item.photo.id}/download",
+                }
+                for item in items
+            ],
+        }
+    )
+
+
 @app.get("/user/events/{event_id}/photos/{photo_id}/download")
 def user_download_photo(request: Request, event_id: str, photo_id: str, db: Session = Depends(get_db)) -> Response:
     event = get_published_event(db, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Published event not found.")
 
-    _, authorized_items = authorized_search_results(request, db, event=event)
-    if not any(str(item.photo.id) == str(photo_id) for item in authorized_items):
+    search_session = authorized_search_session(request, db, event=event)
+    if search_session is None or not search_session_allows_photo(
+        db, event_id=event.id, search_session_id=search_session.id, photo_id=photo_id
+    ):
         raise HTTPException(status_code=404, detail="Photo not found.")
 
-    photo = get_event_photo(db, event_id=event.id, photo_id=photo_id)
+    try:
+        parsed_photo_id = UUID(photo_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Photo not found.") from None
+    photo = db.execute(select(Photo).where(Photo.id == parsed_photo_id, Photo.event_id == event.id)).scalar_one_or_none()
     if photo is None:
         raise HTTPException(status_code=404, detail="Photo not found.")
 

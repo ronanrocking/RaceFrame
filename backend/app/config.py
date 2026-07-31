@@ -50,6 +50,7 @@ class Settings:
     max_face_search_backlog: int = int(os.getenv("MAX_FACE_SEARCH_BACKLOG", "100"))
     max_photo_job_backlog: int = int(os.getenv("MAX_PHOTO_JOB_BACKLOG", "10000"))
     max_search_results: int = int(os.getenv("MAX_SEARCH_RESULTS", "250"))
+    search_result_page_size: int = int(os.getenv("SEARCH_RESULT_PAGE_SIZE", "24"))
     max_search_faces_per_event: int = int(os.getenv("MAX_SEARCH_FACES_PER_EVENT", "25000"))
     search_capability_ttl_seconds: int = int(os.getenv("SEARCH_CAPABILITY_TTL_SECONDS", "3600"))
     biometric_retention_hours: int = int(os.getenv("BIOMETRIC_RETENTION_HOURS", "24"))

@@ -41,7 +41,7 @@ limits in bytes and all retention/lease values in seconds or hours as named.
 | `MAX_IMAGE_PIXELS`, `MAX_IMAGE_DIMENSION` | Decoded-image bomb limits (40 million pixels and 12,000 px). |
 | `MAX_PARTICIPANT_ROWS`, `MAX_PARTICIPANT_COLUMNS`, `MAX_PARTICIPANT_CELL_CHARS`, `MAX_SPREADSHEET_UNCOMPRESSED_BYTES` | Spreadsheet expansion and content limits. |
 | `MAX_FACE_SEARCH_BACKLOG`, `MAX_PHOTO_JOB_BACKLOG` | Admission backpressure thresholds. |
-| `MAX_SEARCH_RESULTS`, `MAX_SEARCH_FACES_PER_EVENT` | Bounded query and compute results. |
+| `MAX_SEARCH_RESULTS`, `MAX_SEARCH_FACES_PER_EVENT`, `SEARCH_RESULT_PAGE_SIZE` | Bounded compute results and the participant gallery page size (default 24, maximum 48). |
 | `SEARCH_CAPABILITY_TTL_SECONDS` | Browser search authorization lifetime; default one hour. |
 | `BIOMETRIC_RETENTION_HOURS` | Maximum temporary face-search session lifetime before scheduled purge; default 24 hours. |
 | `RAW_RESPONSE_RETENTION_HOURS` | Worker diagnostic payload lifetime; default 24 hours. |

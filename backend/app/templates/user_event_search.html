@@ -68,7 +68,7 @@
       <div class="admin-section-header">
         <div>
           <p class="admin-section-label">Face Search Results</p>
-          <h2>{{ face_search_results|length }} Hybrid Match{{ "" if face_search_results|length == 1 else "es" }}</h2>
+          <h2 data-search-result-count>{{ search_result_total }} Hybrid Match{{ "" if search_result_total == 1 else "es" }}</h2>
         </div>
         <span class="admin-status-pill upload-status-pill-{{ face_search_session.status }}">{{ face_search_session.status }}</span>
       </div>
@@ -82,7 +82,7 @@
       </p>
 
       {% if face_search_results %}
-        <div class="user-results-grid">
+        <div class="user-results-grid" data-search-results-grid>
           {% for item in face_search_results %}
             <article class="user-photo-card">
               <a class="user-photo-preview" href="{{ item.photo_url if item.photo_url else '/user/events/' ~ event.id ~ '/photos/' ~ item.photo.id ~ '/download' }}" target="_blank" rel="noreferrer">
@@ -101,7 +101,7 @@
                     {% endfor %}
                   </div>
                 {% endif %}
-                <p class="user-photo-evidence">Faces detected: {{ item.photo.face_detections|length }}</p>
+                <p class="user-photo-evidence">Faces detected: {{ item.face_count }}</p>
               </div>
               <div class="user-photo-card-actions">
                 <a class="admin-open-link admin-open-link-subtle" href="/user/events/{{ event.id }}/photos/{{ item.photo.id }}/download">Download</a>
@@ -110,11 +110,15 @@
           {% endfor %}
         </div>
       {% else %}
-        <div class="admin-empty-state admin-empty-state-tight">
+        <div class="user-results-grid" data-search-results-grid hidden></div>
+        <div class="admin-empty-state admin-empty-state-tight" data-search-empty-state>
           <h4>No face matches yet</h4>
-          <p>Refresh shortly after the worker has processed the uploaded face photos.</p>
+          <p>Searching securely in the background. Results will appear here automatically.</p>
         </div>
       {% endif %}
+      <div class="admin-form-actions" data-search-load-more {% if not next_result_cursor %}hidden{% endif %}>
+        <button class="admin-button admin-button-secondary" type="button" data-search-load-more-button data-next-cursor="{{ next_result_cursor or '' }}">Load more photos</button>
+      </div>
     </section>
   {% endif %}
 {% endblock %}
@@ -123,7 +127,98 @@
   {{ super() }}
   {% if face_search_session %}
   <script nonce="{{ csp_nonce }}">
-    window.history.replaceState({}, document.title, window.location.pathname);
+    (() => {
+      const endpoint = "/user/events/{{ event.id }}/results";
+      const grid = document.querySelector("[data-search-results-grid]");
+      const emptyState = document.querySelector("[data-search-empty-state]");
+      const loadMore = document.querySelector("[data-search-load-more]");
+      const loadMoreButton = document.querySelector("[data-search-load-more-button]");
+      const count = document.querySelector("[data-search-result-count]");
+      const status = document.querySelector(".upload-status-pill");
+      if (!grid || !loadMore || !loadMoreButton || !count || !status) return;
+
+      let loading = false;
+      const addCard = (item) => {
+        const card = document.createElement("article");
+        card.className = "user-photo-card";
+        const preview = document.createElement("a");
+        preview.className = "user-photo-preview";
+        preview.href = item.photo_url || item.download_url;
+        preview.target = "_blank";
+        preview.rel = "noreferrer";
+        if (item.photo_url) {
+          const image = document.createElement("img");
+          image.src = item.photo_url;
+          image.alt = item.file_name;
+          image.className = "gallery-image user-result-image";
+          preview.append(image);
+        } else {
+          const fallback = document.createElement("span");
+          fallback.className = "user-photo-fallback";
+          fallback.textContent = "Preview unavailable";
+          preview.append(fallback);
+        }
+        const copy = document.createElement("div");
+        copy.className = "user-photo-card-copy";
+        const name = document.createElement("h3");
+        name.textContent = item.file_name;
+        copy.append(name);
+        if (item.evidence_labels.length) {
+          const labels = document.createElement("div");
+          labels.className = "user-photo-evidence-list";
+          item.evidence_labels.forEach((label) => {
+            const badge = document.createElement("span");
+            badge.textContent = label;
+            labels.append(badge);
+          });
+          copy.append(labels);
+        }
+        const faces = document.createElement("p");
+        faces.className = "user-photo-evidence";
+        faces.textContent = `Faces detected: ${item.face_count}`;
+        copy.append(faces);
+        const actions = document.createElement("div");
+        actions.className = "user-photo-card-actions";
+        const download = document.createElement("a");
+        download.className = "admin-open-link admin-open-link-subtle";
+        download.href = item.download_url;
+        download.textContent = "Download";
+        actions.append(download);
+        card.append(preview, copy, actions);
+        grid.append(card);
+      };
+
+      const loadPage = async (cursor = "") => {
+        if (loading) return;
+        loading = true;
+        loadMoreButton.disabled = true;
+        try {
+          const response = await fetch(`${endpoint}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, { credentials: "same-origin" });
+          if (!response.ok) return;
+          const payload = await response.json();
+          status.textContent = payload.status;
+          status.className = `admin-status-pill upload-status-pill-${payload.status}`;
+          count.textContent = `${payload.result_count} Hybrid Match${payload.result_count === 1 ? "" : "es"}`;
+          payload.items.forEach(addCard);
+          if (payload.items.length) {
+            grid.hidden = false;
+            if (emptyState) emptyState.hidden = true;
+          }
+          loadMoreButton.dataset.nextCursor = payload.next_cursor || "";
+          loadMore.hidden = !payload.next_cursor;
+          if (payload.status === "queued" || payload.status === "processing") {
+            window.setTimeout(() => loadPage(""), 1500);
+          }
+        } finally {
+          loading = false;
+          loadMoreButton.disabled = false;
+        }
+      };
+
+      loadMoreButton.addEventListener("click", () => loadPage(loadMoreButton.dataset.nextCursor || ""));
+      if (status.textContent === "queued" || status.textContent === "processing") loadPage("");
+      window.history.replaceState({}, document.title, window.location.pathname);
+    })();
   </script>
   {% endif %}
   <script nonce="{{ csp_nonce }}">
