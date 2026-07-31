@@ -64,6 +64,7 @@ jobs:
       - name: Run backend tests
         run: pytest --quiet --cov=app --cov-report=term-missing --cov-report=xml:coverage.xml --cov-fail-under=35
         working-directory: backend
+        working-directory: backend
 
       - name: Upload measured coverage baseline
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
