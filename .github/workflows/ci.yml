@@ -62,8 +62,7 @@ jobs:
         run: ruff check backend/app backend/migrations backend/tests raceframe-worker/worker.py raceframe-worker/tests
 
       - name: Run backend tests
-        run: pytest --quiet --cov=app --cov-report=term-missing --cov-report=xml:coverage.xml --cov-fail-under=35
-        working-directory: backend
+        run: PYTHONPATH=backend pytest --quiet backend/tests --cov=app --cov-report=term-missing --cov-report=xml:coverage.xml --cov-fail-under=35
 
       - name: Upload measured coverage baseline
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
