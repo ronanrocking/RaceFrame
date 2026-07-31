@@ -209,6 +209,8 @@ def delete_event(session: Session, *, event: Event) -> None:
     object_keys.extend(
         session.execute(select(ParticipantFaceImage.object_key).where(ParticipantFaceImage.event_id == event.id)).scalars()
     )
+    if event.thumbnail_object_key:
+        object_keys.append(event.thumbnail_object_key)
     for object_key in object_keys:
         enqueue_object_deletion(session, object_key)
     session.delete(event)

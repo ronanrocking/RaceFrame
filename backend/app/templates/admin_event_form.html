@@ -7,26 +7,20 @@
   <a class="site-nav-link" href="/upload">Upload</a>
   <a class="site-nav-link" href="/user">Find Photos</a>
 {% endblock %}
-{% block header_eyebrow %}<p class="page-eyebrow"><span>{% if event %}02{% else %}01{% endif %}</span> Event Configuration</p>{% endblock %}
 {% block header_title %}{{ page_title }}{% endblock %}
 {% block header_subtitle %}
-  <p class="admin-header-subtitle">{% if event %}Control event details, participant records, photo processing, and lifecycle actions.{% else %}Define the event shell. The slug is generated safely when the event is saved.{% endif %}</p>
+  <p class="admin-header-subtitle">{% if event %}Manage event details, participants, and photos.{% else %}Add the race details. New events start as drafts.{% endif %}</p>
 {% endblock %}
 {% block header_actions %}
-  {% if not event %}
-    <a class="admin-button admin-button-secondary" href="/admin">Back to Dashboard</a>
-  {% endif %}
-  {% if event %}
-    <a class="admin-button admin-button-secondary" href="/admin">Back to Dashboard</a>
-  {% endif %}
+  <a class="admin-button admin-button-secondary" href="/admin">Back to Events</a>
 {% endblock %}
 
 {% block content %}
   {% if message %}
-    <p class="message message-success admin-message">{{ message }}</p>
+    <p class="message message-{{ message_level }} admin-message" role="{% if message_level == 'error' %}alert{% else %}status{% endif %}">{{ message }}</p>
   {% endif %}
   {% if error_message %}
-    <p class="message message-error admin-message">{{ error_message }}</p>
+    <p class="message message-error admin-message" role="alert">{{ error_message }}</p>
   {% endif %}
 
   {% set source = form_values if form_values else event %}
@@ -36,19 +30,24 @@
       <section class="admin-section admin-section-main">
         <div class="admin-section-header">
           <div>
-            <p class="admin-section-label">Core Details</p>
-            <h2>{{ page_title }}</h2>
+            <h2>Event Details</h2>
           </div>
           <span class="admin-badge admin-badge-muted">
             {{ (form_values.status if form_values and form_values.status else 'draft')|upper }}
           </span>
         </div>
 
-        <form method="post" action="{{ form_action }}" class="admin-form">
+        <form method="post" action="{{ form_action }}" enctype="multipart/form-data" class="admin-form" data-pending-message="Creating event...">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
           <label class="admin-field">
             <span class="admin-field-label">Event Name</span>
             <input name="name" required value="{{ source.name if source else '' }}" placeholder="Bangalore City Marathon 2026" />
+          </label>
+
+          <label class="admin-field admin-thumbnail-field">
+            <span class="admin-field-label">Event Thumbnail <span class="admin-optional-label">Optional</span></span>
+            <input type="file" name="thumbnail_file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" />
+            <small class="admin-field-help">Shown on the participant event list. Images are center-cropped to 3:2.</small>
           </label>
 
           <div class="admin-form-grid">
@@ -71,6 +70,7 @@
                 <option value="{{ status_option }}" {% if current_status == status_option %}selected{% endif %}>{{ status_option }}</option>
               {% endfor %}
             </select>
+            <small class="admin-field-help">Draft is private. Published events appear to photographers and participants.</small>
           </label>
 
           <div class="admin-form-actions">
@@ -101,7 +101,7 @@
       </nav>
 
       <section class="admin-event-tab-panel admin-event-overview" id="event-overview" role="tabpanel" aria-labelledby="tab-overview" data-event-panel="overview">
-        <div class="admin-tab-heading"><div><p class="admin-section-label">At a glance</p><h3>Event Overview</h3></div></div>
+        <div class="admin-tab-heading"><div><h3>Event Overview</h3></div></div>
         <div class="admin-event-summary-grid">
           <article class="admin-event-summary-card"><span>Participants</span><strong>{{ participant_count }}</strong><p>Roster entries available for matching.</p></article>
           <article class="admin-event-summary-card"><span>Photos</span><strong>{{ photo_stats.total }}</strong><p>{{ photo_stats.ready }} ready for participant search.</p></article>
@@ -122,7 +122,7 @@
           </span>
         </div>
 
-        <form method="post" action="{{ form_action }}" class="admin-form admin-edit-form">
+        <form method="post" action="{{ form_action }}" enctype="multipart/form-data" class="admin-form admin-edit-form" data-pending-message="Saving event changes...">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
           <label class="admin-field">
             <span class="admin-field-label">Name</span>
@@ -149,7 +149,37 @@
                 <option value="{{ status_option }}" {% if current_status == status_option %}selected{% endif %}>{{ status_option }}</option>
               {% endfor %}
             </select>
+            <small class="admin-field-help">Draft is private. Published events appear to photographers and participants.</small>
           </label>
+
+          <div class="admin-field admin-thumbnail-field">
+            <span class="admin-field-label">Event Thumbnail <span class="admin-optional-label">Optional</span></span>
+            <div class="admin-thumbnail-editor {% if not event.thumbnail_object_key %}is-empty{% endif %}">
+              <div class="admin-thumbnail-preview">
+                {% if event.thumbnail_object_key %}
+                  <img src="/user/events/{{ event.id }}/thumbnail" alt="Current thumbnail for {{ event.name }}" />
+                {% else %}
+                  <svg viewBox="0 0 120 80" aria-hidden="true">
+                    <path d="M18 59 42 35l15 15 11-11 34 34H18Z" />
+                    <circle cx="79" cy="25" r="8" />
+                  </svg>
+                {% endif %}
+              </div>
+              <div class="admin-thumbnail-controls">
+                <label class="admin-field">
+                  <span class="admin-field-label">{% if event.thumbnail_object_key %}Replace Image{% else %}Choose Image{% endif %}</span>
+                  <input type="file" name="thumbnail_file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" />
+                </label>
+                <small class="admin-field-help">JPG, PNG, or WebP. Saved as a consistent 3:2 crop.</small>
+                {% if event.thumbnail_object_key %}
+                  <label class="admin-thumbnail-remove">
+                    <input type="checkbox" name="remove_thumbnail" value="true" />
+                    <span>Remove current thumbnail</span>
+                  </label>
+                {% endif %}
+              </div>
+            </div>
+          </div>
 
           <div class="admin-form-actions admin-edit-actions">
             <button class="admin-button admin-button-primary" type="submit">{{ submit_label }}</button>
@@ -160,7 +190,6 @@
       <section class="admin-section admin-edit-utility-section" id="event-participants" role="tabpanel" aria-labelledby="tab-participants" data-event-panel="participants" hidden>
         <div class="admin-section-header">
           <div>
-            <p class="admin-section-label">Roster Input</p>
             <h2>Participants</h2>
           </div>
           <span class="admin-panel-meta">{{ participant_count }} loaded</span>
@@ -192,7 +221,7 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <div class="admin-edit-option-copy">
               <span class="admin-field-label">Upload CSV</span>
-              <p class="admin-edit-caption">Replace or update the roster from a file.</p>
+              <p class="admin-edit-caption">Use CSV or Excel with <strong>bib_number</strong> and <strong>full_name</strong>. Existing bibs are updated; new bibs are added.</p>
             </div>
             <div class="admin-edit-upload-controls">
               <label class="admin-field admin-upload-field">
@@ -208,7 +237,6 @@
       <section class="admin-section" role="tabpanel" aria-labelledby="tab-participants" data-event-panel="participants" hidden>
         <div class="admin-section-header">
           <div>
-            <p class="admin-section-label">Roster Database</p>
             <h2>Participant List</h2>
           </div>
           <span class="admin-panel-meta">{{ participants|length }} row{{ "" if participants|length == 1 else "s" }}</span>
@@ -216,7 +244,7 @@
 
         {% if participants %}
           <div class="admin-table-wrap">
-            <table class="admin-table admin-table-plain">
+            <table class="admin-table admin-table-plain responsive-table participant-table">
               <thead>
                 <tr>
                   <th>Bib</th>
@@ -228,20 +256,20 @@
               <tbody>
                 {% for participant in participants %}
                   <tr>
-                    <td>
-                      <input form="update-participant-{{ participant.id }}" name="bib_number" value="{{ participant.bib_number }}" required />
+                    <td data-label="Bib">
+                      <input form="update-participant-{{ participant.id }}" name="bib_number" value="{{ participant.bib_number }}" data-original-value="{{ participant.bib_number }}" required />
                     </td>
-                    <td>
-                      <input form="update-participant-{{ participant.id }}" name="full_name" value="{{ participant.full_name }}" required />
+                    <td data-label="Name">
+                      <input form="update-participant-{{ participant.id }}" name="full_name" value="{{ participant.full_name }}" data-original-value="{{ participant.full_name }}" required />
                     </td>
-                    <td>
+                    <td data-label="Save">
                       <form id="update-participant-{{ participant.id }}" method="post" action="/admin/events/{{ event.id }}/participants/{{ participant.id }}/update">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-                        <button class="admin-button admin-button-secondary admin-button-small" type="submit">Save</button>
+                        <button class="admin-button admin-button-secondary admin-button-small" type="submit" data-participant-save disabled>Save</button>
                       </form>
                     </td>
-                    <td>
-                      <form method="post" action="/admin/events/{{ event.id }}/participants/{{ participant.id }}/delete" data-confirm="Delete this participant? This cannot be undone.">
+                    <td data-label="Delete">
+                      <form method="post" action="/admin/events/{{ event.id }}/participants/{{ participant.id }}/delete" data-confirm="Delete {{ participant.bib_number }} — {{ participant.full_name }}? This cannot be undone.">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                         <button class="admin-button admin-button-danger admin-button-small" type="submit">Delete</button>
                       </form>
@@ -262,7 +290,6 @@
       <section class="admin-section" id="event-photos" role="tabpanel" aria-labelledby="tab-photos" data-event-panel="photos" hidden>
         <div class="admin-section-header">
           <div>
-            <p class="admin-section-label">Processing Overview</p>
             <h2>Uploaded Photos</h2>
           </div>
           <span class="admin-panel-meta">{{ photo_count }} photo{{ "" if photo_count == 1 else "s" }}</span>
@@ -281,81 +308,67 @@
               <p class="admin-stat-note">{{ photo_stats.processing }} processing, {{ photo_stats.failed }} failed</p>
             </div>
             <div class="admin-stat-card">
-              <span class="admin-stat-label">Jobs</span>
-              <p class="admin-stat-value">{{ photo_stats.completed_jobs }}</p>
-              <p class="admin-stat-note">{{ photo_stats.queued_jobs }} queued, {{ photo_stats.processing_jobs }} running, {{ photo_stats.failed_jobs }} failed</p>
+              <span class="admin-stat-label">Processing</span>
+              <p class="admin-stat-value">{{ photo_stats.processing }}</p>
+              <p class="admin-stat-note">{{ photo_stats.queued_jobs }} queued, {{ photo_stats.processing_jobs }} running</p>
             </div>
             <div class="admin-stat-card">
-              <span class="admin-stat-label">Thumbnails</span>
-              <p class="admin-stat-value">{{ photo_stats.thumbnails }}</p>
-              <p class="admin-stat-note">{{ photo_stats.missing_thumbnails }} older/original-only photo{{ "" if photo_stats.missing_thumbnails == 1 else "s" }}</p>
+              <span class="admin-stat-label">Failed</span>
+              <p class="admin-stat-value">{{ photo_stats.failed }}</p>
+              <p class="admin-stat-note">{{ photo_stats.failed_jobs }} failed processing job{{ "" if photo_stats.failed_jobs == 1 else "s" }}</p>
             </div>
           </div>
 
-          <div class="admin-photo-stats-grid admin-photo-stats-grid-secondary">
-            <div class="admin-stat-card">
-              <span class="admin-stat-label">OCR Text</span>
-              <p class="admin-stat-value">{{ photo_stats.text_detections }}</p>
-              <p class="admin-stat-note">{{ photo_stats.ocr_jobs }} OCR job{{ "" if photo_stats.ocr_jobs == 1 else "s" }} created</p>
-            </div>
-            <div class="admin-stat-card">
-              <span class="admin-stat-label">Faces</span>
-              <p class="admin-stat-value">{{ photo_stats.face_detections }}</p>
-              <p class="admin-stat-note">{{ photo_stats.face_scan_jobs }} face scan job{{ "" if photo_stats.face_scan_jobs == 1 else "s" }} created</p>
-            </div>
-            <div class="admin-stat-card">
-              <span class="admin-stat-label">Bib Matches</span>
-              <p class="admin-stat-value">{{ photo_stats.participant_matches }}</p>
-              <p class="admin-stat-note">Stored participant-photo links</p>
-            </div>
-            <div class="admin-stat-card">
-              <span class="admin-stat-label">Face Matches</span>
-              <p class="admin-stat-value">{{ photo_stats.face_matches }}</p>
-              <p class="admin-stat-note">Stored face-photo links</p>
-            </div>
-          </div>
+          <details class="admin-diagnostics">
+            <summary>View processing diagnostics</summary>
+            <dl>
+              <div><dt>Storage</dt><dd>{{ photo_stats.total_file_size_mb }} MB</dd></div>
+              <div><dt>Thumbnails</dt><dd>{{ photo_stats.thumbnails }}</dd></div>
+              <div><dt>Text detections</dt><dd>{{ photo_stats.text_detections }}</dd></div>
+              <div><dt>Face detections</dt><dd>{{ photo_stats.face_detections }}</dd></div>
+              <div><dt>Bib matches</dt><dd>{{ photo_stats.participant_matches }}</dd></div>
+              <div><dt>Face matches</dt><dd>{{ photo_stats.face_matches }}</dd></div>
+            </dl>
+          </details>
         {% else %}
           <div class="admin-empty-state admin-empty-state-tight">
             <h4>No photos uploaded yet</h4>
-            <p>The photographer workflow can start sending files here once the event is ready.</p>
+            <p>{% if event.status == 'published' %}This event is ready for its first upload.{% else %}Publish this event before uploading photos.{% endif %}</p>
+            <a class="admin-open-link" href="{% if event.status == 'published' %}/upload/events/{{ event.id }}{% else %}#settings{% endif %}">{% if event.status == 'published' %}Upload photos{% else %}Review settings{% endif %}</a>
           </div>
         {% endif %}
       </section>
 
-      <section class="admin-section admin-settings-danger" role="tabpanel" aria-labelledby="tab-settings" data-event-panel="settings" hidden>
-        <div class="admin-section-header">
-          <div>
-            <p class="admin-section-label">Irreversible Actions</p>
-            <h2>Danger Zone</h2>
-          </div>
-        </div>
+      <details class="admin-section admin-settings-danger" role="tabpanel" aria-labelledby="tab-settings" data-event-panel="settings" hidden>
+        <summary>Show destructive actions</summary>
+        <div class="admin-section-header"><div><h2>Danger Zone</h2></div></div>
 
         <div class="admin-danger-list">
           <div class="admin-danger-row">
-            <div class="admin-danger-copy"><p class="admin-danger-title">Delete All Participants</p><p>Remove every roster entry from this event.</p></div>
-            <form method="post" action="/admin/events/{{ event.id }}/participants/delete-all" data-confirm="Delete all participants for this event? This cannot be undone.">
+            <div class="admin-danger-copy"><p class="admin-danger-title">Delete All Participants</p><p>Remove all {{ participant_count }} roster entries from {{ event.name }}.</p></div>
+            <form method="post" action="/admin/events/{{ event.id }}/participants/delete-all" data-confirm="Delete all {{ participant_count }} participants from {{ event.name }}? This cannot be undone.">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
               <button class="admin-button admin-button-danger" type="submit">Delete All Participants</button>
             </form>
           </div>
 
           <div class="admin-danger-row">
-            <div class="admin-danger-copy"><p class="admin-danger-title">Delete All Photos</p><p>Remove all uploaded images and their processing records.</p></div>
-            <form method="post" action="/admin/events/{{ event.id }}/photos/delete-all" data-confirm="Delete all event photos? This cannot be undone.">
+            <div class="admin-danger-copy"><p class="admin-danger-title">Delete All Photos</p><p>Remove all {{ photo_count }} images and their processing records.</p></div>
+            <form method="post" action="/admin/events/{{ event.id }}/photos/delete-all" data-confirm="Delete all {{ photo_count }} photos from {{ event.name }}? This cannot be undone.">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
               <button class="admin-button admin-button-danger" type="submit">Delete All Photos</button>
             </form>
           </div>
 
           <div class="admin-danger-row">
-            <div class="admin-danger-copy"><p class="admin-danger-title">Delete Event</p><p>Permanently remove this event and its associated data.</p></div>
-            <form method="post" action="/admin/events/{{ event.id }}/delete" data-confirm="Delete this event and all related records? This cannot be undone.">
+            <div class="admin-danger-copy"><p class="admin-danger-title">Delete Event</p><p>Permanently remove {{ event.name }} and all associated data.</p></div>
+            <form method="post" action="/admin/events/{{ event.id }}/delete" data-confirm="Delete {{ event.name }} and all related records? This cannot be undone.">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
               <button class="admin-button admin-button-danger" type="submit">Delete Event</button>
             </form>
           </div>
         </div>
-      </section>
+      </details>
       </div>
     </div>
   {% endif %}
@@ -370,6 +383,7 @@
       if (!workspace) return;
       const tabs = Array.from(workspace.querySelectorAll("[data-event-tab]"));
       const panels = Array.from(workspace.querySelectorAll("[data-event-panel]"));
+      const tabStorageKey = "raceframe:event:{{ event.id }}:active-tab";
       const activate = (name, updateHash = true) => {
         const selected = tabs.some((tab) => tab.dataset.eventTab === name) ? name : "overview";
         tabs.forEach((tab) => {
@@ -379,10 +393,37 @@
         });
         panels.forEach((panel) => { panel.hidden = panel.dataset.eventPanel !== selected; });
         if (updateHash) history.replaceState(null, "", `#${selected}`);
+        sessionStorage.setItem(tabStorageKey, selected);
       };
       tabs.forEach((tab) => tab.addEventListener("click", () => activate(tab.dataset.eventTab)));
+      tabs.forEach((tab, index) => tab.addEventListener("keydown", (event) => {
+        const keys = ["ArrowLeft", "ArrowRight", "Home", "End"];
+        if (!keys.includes(event.key)) return;
+        event.preventDefault();
+        let nextIndex = index;
+        if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
+        if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+        if (event.key === "Home") nextIndex = 0;
+        if (event.key === "End") nextIndex = tabs.length - 1;
+        tabs[nextIndex].focus();
+        activate(tabs[nextIndex].dataset.eventTab);
+      }));
+      workspace.querySelectorAll("form").forEach((form) => form.addEventListener("submit", () => {
+        const selected = tabs.find((tab) => tab.getAttribute("aria-selected") === "true");
+        if (selected) sessionStorage.setItem(tabStorageKey, selected.dataset.eventTab);
+      }));
+      workspace.querySelectorAll("[data-original-value]").forEach((input) => {
+        const form = document.getElementById(input.getAttribute("form"));
+        const save = form && form.querySelector("[data-participant-save]");
+        if (!save) return;
+        const rowInputs = Array.from(workspace.querySelectorAll(`[form="${form.id}"][data-original-value]`));
+        const updateDirtyState = () => {
+          save.disabled = !rowInputs.some((field) => field.value !== field.dataset.originalValue);
+        };
+        input.addEventListener("input", updateDirtyState);
+      });
       window.addEventListener("hashchange", () => activate(location.hash.slice(1), false));
-      activate(location.hash.slice(1), false);
+      activate(location.hash.slice(1) || sessionStorage.getItem(tabStorageKey) || "overview", false);
     })();
   </script>
   {% endif %}

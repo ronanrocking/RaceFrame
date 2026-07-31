@@ -19,13 +19,12 @@ from sqlalchemy.orm import Session, selectinload
 from .config import settings
 from .db import get_db
 from .face import (
-    complete_bib_only_search_job,
     complete_face_search_job,
     complete_participant_face_job,
     complete_photo_face_job,
     complete_photo_ocr_job,
 )
-from .models import BibSearchJob, FaceSearchJob, ParticipantFaceJob, PhotoJob, WorkerHeartbeat, utc_now
+from .models import FaceSearchJob, ParticipantFaceJob, PhotoJob, WorkerHeartbeat, utc_now
 from .photographer import safe_photo_access_url
 
 
@@ -221,10 +220,6 @@ class CompleteFaceSearchJobRequest(CompleteEmbeddingJobRequest):
     pass
 
 
-class CompleteBibSearchJobRequest(AttemptRequest):
-    pass
-
-
 class FailJobRequest(AttemptRequest):
     error_message: str = Field(min_length=1, max_length=2_000)
     retryable: bool = True
@@ -256,9 +251,7 @@ class WorkerHeartbeatRequest(StrictRequestModel):
     @field_validator("current_job_type")
     @classmethod
     def validate_current_job_type(cls, value: str | None) -> str | None:  # noqa: N805
-        if value is not None and value not in {
-            "ocr", "face_photo_scan", "face_selfie_enroll", "face_search_probe", "bib_only_search"
-        }:
+        if value is not None and value not in {"ocr", "face_photo_scan", "face_selfie_enroll", "face_search_probe"}:
             raise ValueError("Unsupported current worker job type.")
         return value
 
@@ -341,11 +334,6 @@ def _sync_terminal_parent_state(db: Session, job: Any) -> None:
         if statuses and all(item in TERMINAL_JOB_STATUSES for item in statuses):
             job.search_session.status = "completed" if "completed" in statuses else "failed"
             job.search_session.finished_at = utc_now()
-        return
-
-    if isinstance(job, BibSearchJob):
-        job.search_session.status = "failed"
-        job.search_session.finished_at = utc_now()
 
 
 def _dead_letter(job: Any, *, reason: str) -> None:
@@ -367,8 +355,6 @@ def _mark_parent_processing(job: Any) -> None:
     elif isinstance(job, FaceSearchJob):
         job.search_image.status = "processing"
         job.search_image.error_message = None
-        job.search_session.status = "processing"
-    elif isinstance(job, BibSearchJob):
         job.search_session.status = "processing"
 
 
@@ -540,18 +526,6 @@ def _load_face_search_job(db: Session, job_id: UUID) -> FaceSearchJob:
     ).scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=404, detail="Face search job not found.")
-    return job
-
-
-def _load_bib_search_job(db: Session, job_id: UUID) -> BibSearchJob:
-    job = db.execute(
-        select(BibSearchJob)
-        .where(BibSearchJob.id == job_id)
-        .options(selectinload(BibSearchJob.search_session), selectinload(BibSearchJob.participant))
-        .with_for_update()
-    ).scalar_one_or_none()
-    if job is None:
-        raise HTTPException(status_code=404, detail="Bib search job not found.")
     return job
 
 
@@ -849,58 +823,3 @@ def fail_worker_face_search_job(
     _token: None = Depends(require_worker_token),
 ) -> dict[str, str]:
     return _fail_job(db, _load_face_search_job(db, job_id), payload)
-
-
-@router.post("/bib-search-jobs/claim")
-def claim_bib_search_job(
-    db: Session = Depends(get_db),
-    _token: None = Depends(require_worker_token),
-) -> dict[str, Any]:
-    job = _claim_job(
-        db,
-        BibSearchJob,
-        job_type_condition=BibSearchJob.job_type == "bib_only_search",
-        relationship_options=(selectinload(BibSearchJob.search_session), selectinload(BibSearchJob.participant)),
-    )
-    if job is None:
-        return {"job": None}
-    response = _job_claim_metadata(job, heartbeat_path=f"/internal/worker/bib-search-jobs/{job.id}/heartbeat")
-    response.update({"event_id": str(job.event_id), "search_session_id": str(job.search_session_id)})
-    return {"job": response}
-
-
-@router.post("/bib-search-jobs/{job_id}/heartbeat")
-def heartbeat_bib_search_job(
-    job_id: UUID,
-    payload: HeartbeatRequest,
-    db: Session = Depends(get_db),
-    _token: None = Depends(require_worker_token),
-) -> dict[str, str]:
-    return _heartbeat_job(db, _load_bib_search_job(db, job_id), payload)
-
-
-@router.post("/bib-search-jobs/{job_id}/complete")
-def complete_worker_bib_search_job(
-    job_id: UUID,
-    payload: CompleteBibSearchJobRequest,
-    db: Session = Depends(get_db),
-    _token: None = Depends(require_worker_token),
-) -> dict[str, str]:
-    job = _load_bib_search_job(db, job_id)
-    current = _verify_active_attempt(job, payload.attempt_id, allow_terminal=True)
-    if current == "completed":
-        return {"status": "completed"}
-    if current != "processing":
-        raise HTTPException(status_code=409, detail=f"Job cannot complete from state {current}.")
-    complete_bib_only_search_job(db, job=job)
-    return {"status": "completed"}
-
-
-@router.post("/bib-search-jobs/{job_id}/fail")
-def fail_worker_bib_search_job(
-    job_id: UUID,
-    payload: FailJobRequest,
-    db: Session = Depends(get_db),
-    _token: None = Depends(require_worker_token),
-) -> dict[str, str]:
-    return _fail_job(db, _load_bib_search_job(db, job_id), payload)

@@ -54,6 +54,7 @@ class Event(Base):
     event_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft", index=True)
+    thumbnail_object_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
     participants: Mapped[list["Participant"]] = relationship(
@@ -455,16 +456,6 @@ class FaceSearchSession(Base):
         cascade="all, delete-orphan",
         order_by=lambda: FaceSearchResult.similarity_score.desc(),
     )
-    photo_results: Mapped[list["SearchSessionPhotoResult"]] = relationship(
-        back_populates="search_session",
-        cascade="all, delete-orphan",
-        order_by=lambda: SearchSessionPhotoResult.rank.asc(),
-    )
-    bib_search_jobs: Mapped[list["BibSearchJob"]] = relationship(
-        back_populates="search_session",
-        cascade="all, delete-orphan",
-        order_by=lambda: BibSearchJob.created_at.desc(),
-    )
 
 
 class FaceSearchImage(Base):
@@ -547,76 +538,6 @@ class FaceSearchResult(Base):
     search_session: Mapped[FaceSearchSession] = relationship(back_populates="results")
     photo: Mapped[Photo] = relationship()
     photo_face_detection: Mapped[PhotoFaceDetection] = relationship()
-
-
-class SearchSessionPhotoResult(Base):
-    """The immutable, participant-visible result set for one temporary search."""
-
-    __tablename__ = "search_session_photo_results"
-    __table_args__ = (
-        UniqueConstraint("search_session_id", "photo_id", name="uq_search_session_photo_results_session_photo"),
-        UniqueConstraint("search_session_id", "rank", name="uq_search_session_photo_results_session_rank"),
-        CheckConstraint("rank > 0", name="ck_search_session_photo_results_rank"),
-        CheckConstraint(
-            "best_face_score IS NULL OR (best_face_score >= -1 AND best_face_score <= 1)",
-            name="ck_search_session_photo_results_face_score",
-        ),
-        Index("ix_search_session_photo_results_page", "search_session_id", "rank", "photo_id"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
-    search_session_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("face_search_sessions.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    photo_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("photos.id", ondelete="CASCADE"), nullable=False, index=True)
-    rank: Mapped[int] = mapped_column(Integer, nullable=False)
-    best_face_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    face_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    evidence_labels: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
-
-    search_session: Mapped[FaceSearchSession] = relationship(back_populates="photo_results")
-    photo: Mapped[Photo] = relationship()
-
-
-class BibSearchJob(Base):
-    """A leased request to run database-only bib reinforcement off the browser path."""
-
-    __tablename__ = "bib_search_jobs"
-    __table_args__ = (
-        UniqueConstraint("search_session_id", name="uq_bib_search_jobs_search_session"),
-        CheckConstraint("job_type = 'bib_only_search'", name="ck_bib_search_jobs_job_type"),
-        CheckConstraint(
-            "status IN ('queued', 'processing', 'completed', 'failed', 'dead_lettered')",
-            name="ck_bib_search_jobs_status",
-        ),
-        CheckConstraint("attempt_count >= 0", name="ck_bib_search_jobs_attempt_count"),
-        CheckConstraint("max_attempts > 0", name="ck_bib_search_jobs_max_attempts"),
-        Index("ix_bib_search_jobs_claim", "status", "job_type", "retry_after", "created_at"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
-    search_session_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("face_search_sessions.id", ondelete="CASCADE"), nullable=False
-    )
-    participant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("participants.id", ondelete="CASCADE"), nullable=False, index=True)
-    job_type: Mapped[str] = mapped_column(String(32), nullable=False, default="bib_only_search")
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued", index=True)
-    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
-    attempt_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
-    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    retry_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    dead_lettered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    search_session: Mapped[FaceSearchSession] = relationship(back_populates="bib_search_jobs")
-    participant: Mapped[Participant] = relationship()
 
 
 class ObjectDeletionTask(Base):

@@ -78,10 +78,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Idempotently backfill missing RaceFrame thumbnails.")
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--apply", action="store_true", help="Write thumbnails. Without this flag, only count rows.")
+    parser.add_argument("--all", action="store_true", help="Process every missing thumbnail in bounded batches.")
     args = parser.parse_args()
-    processed, failed = run_batch(limit=args.limit, apply=args.apply)
-    print(f"processed={processed} failed={failed} apply={args.apply}")
-    if failed:
+    batch_limit = max(1, min(args.limit, 1_000))
+    total_processed = 0
+    total_failed = 0
+    while True:
+        processed, failed = run_batch(limit=batch_limit, apply=args.apply)
+        total_processed += processed
+        total_failed += failed
+        print(f"batch_processed={processed} batch_failed={failed} apply={args.apply}", flush=True)
+        if failed or not args.all or not args.apply or processed < batch_limit:
+            break
+    print(f"processed={total_processed} failed={total_failed} apply={args.apply}", flush=True)
+    if total_failed:
         raise SystemExit(1)
 
 

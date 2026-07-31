@@ -13,6 +13,12 @@ coverage.xml
 htmlcov/
 .pytest_cache/
 .ruff_cache/
+.venv/
+.agents/
+.codex/
+.impeccable/
+PRODUCT.md
+backend/Dockerfile.*hotfix
 *.dump
 *.dump.age
 *.sql.age

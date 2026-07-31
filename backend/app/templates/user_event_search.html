@@ -2,31 +2,30 @@
 
 {% block body_class %}admin-theme user-page user-search-page{% endblock %}
 {% block shell_class %}admin-shell{% endblock %}
+{% block site_brand_href %}/user{% endblock %}
 
 {% block site_nav %}
-  <a class="site-nav-link" href="/admin">Admin</a>
-  <a class="site-nav-link" href="/upload">Upload</a>
   <a class="site-nav-link is-active" aria-current="page" href="/user">Find Photos</a>
 {% endblock %}
+{% block mobile_site_nav %}<a href="/user"><span>01</span>Find Photos</a>{% endblock %}
 
-{% block header_eyebrow %}<p class="page-eyebrow"><span>02</span> Evidence Search</p>{% endblock %}
 {% block header_title %}Search Race Photos{% endblock %}
 {% block header_subtitle %}
   <p class="admin-header-subtitle">{{ event.name }}</p>
 {% endblock %}
+{% block footer_note %}Your selfie is optional and temporary{% endblock %}
 {% block header_actions %}
   <a class="admin-button admin-button-secondary" href="/user">Back to Events</a>
 {% endblock %}
 
 {% block content %}
   {% if message %}
-    <p class="message message-{{ message_level }} admin-message">{{ message }}</p>
+    <p class="message message-{{ message_level }} admin-message" role="{% if message_level == 'error' %}alert{% else %}status{% endif %}">{{ message }}</p>
   {% endif %}
 
   <section class="admin-section user-search-section">
     <div class="admin-section-header">
       <div>
-        <p class="admin-section-label">Event Search</p>
         <h2>{{ event.name }}</h2>
       </div>
     </div>
@@ -42,8 +41,8 @@
     >
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <label class="user-bib-field">
-        <span class="user-field-label">Bib number</span>
-        <input type="text" name="participant_query" value="{{ search_term }}" placeholder="Enter your bib number" inputmode="numeric" required />
+        <span class="user-field-label">Bib number or exact name</span>
+        <input type="text" name="participant_query" value="{{ search_term }}" placeholder="Enter your bib number or name" autocomplete="off" required />
       </label>
       <div class="user-search-divider" aria-hidden="true"><span>Improve your match</span></div>
       <label class="user-selfie-field" data-selfie-dropzone>
@@ -55,70 +54,89 @@
         <img class="user-selfie-preview" data-selfie-preview alt="Selected selfie preview" hidden />
         <span class="user-selfie-file-name" data-selfie-file-name hidden></span>
       </label>
+      <button class="user-selfie-remove" data-selfie-remove type="button" hidden>Remove selected selfie</button>
       <p class="user-search-inline-error" data-search-error role="alert" hidden></p>
       <div class="admin-form-actions user-search-actions">
         <button class="admin-button admin-button-primary" data-search-button type="submit">Find my photos</button>
       </div>
-      <p class="user-search-privacy">Your selfie is used only to search this event’s photos.</p>
+      <p class="user-search-privacy">Optional. Your selfie is used only for this search and deleted after the temporary search period.</p>
     </form>
+    <div class="user-search-loading" data-search-loading role="status" aria-live="polite" hidden>
+      <span class="user-search-scanner" aria-hidden="true"><span></span></span>
+      <h3>Finding your race photos</h3>
+      <p>We’re checking bib and face matches across this event. Larger events can take a few moments.</p>
+      <span class="user-search-loading-track" aria-hidden="true"><span></span></span>
+      <small>Scanning this event securely</small>
+    </div>
   </section>
 
   {% if face_search_session %}
     <section class="admin-section user-results-section">
       <div class="admin-section-header">
         <div>
-          <p class="admin-section-label">Face Search Results</p>
-          <h2 data-search-result-count>{{ search_result_total }} Hybrid Match{{ "" if search_result_total == 1 else "es" }}</h2>
+          {% if face_search_session.status in ['queued', 'processing'] %}
+            <h2>Searching your photos</h2>
+          {% elif face_search_session.status == 'failed' %}
+            <h2>Search needs attention</h2>
+          {% else %}
+            <h2>{{ total_result_count }} photo{{ "" if total_result_count == 1 else "s" }} found</h2>
+          {% endif %}
         </div>
-        <span class="admin-status-pill upload-status-pill-{{ face_search_session.status }}">{{ face_search_session.status }}</span>
+        <span class="admin-status-pill upload-status-pill-{{ face_search_session.status }}">{% if face_search_session.status in ['queued', 'processing'] %}Searching{% elif face_search_session.status == 'completed' %}Complete{% else %}{{ face_search_session.status }}{% endif %}</span>
       </div>
       <p class="user-face-status">
-        {% if face_search_session.images %}
-          {{ face_search_session.images|length }} face photo{{ "" if face_search_session.images|length == 1 else "s" }} uploaded.
+        {% if face_search_session.status in ['queued', 'processing'] %}
+          We are checking this event’s photos. Refresh shortly to see updated results.
+        {% elif face_search_session.status == 'failed' %}
+          We could not finish this search. Try again with your bib number or a different selfie.
+        {% elif face_search_results %}
+          These photos matched your bib number and/or selfie.
         {% else %}
-          Bib-only reinforcement used strong OCR matches to create temporary face seeds.
+          No photos matched this search. Check the bib number or try adding a selfie.
         {% endif %}
-        Strong bib-only and strong face-only matches can pass; weak evidence must be supported by the other signal.
       </p>
 
       {% if face_search_results %}
-        <div class="user-results-grid" data-search-results-grid>
-          {% for item in face_search_results %}
-            <article class="user-photo-card">
-              <a class="user-photo-preview" href="{{ item.photo_url if item.photo_url else '/user/events/' ~ event.id ~ '/photos/' ~ item.photo.id ~ '/download' }}" target="_blank" rel="noreferrer">
-                {% if item.photo_url %}
-                  <img src="{{ item.photo_url }}" alt="{{ item.photo.file_name }}" class="gallery-image user-result-image" />
-                {% else %}
-                  <span class="user-photo-fallback">Preview unavailable</span>
-                {% endif %}
-              </a>
-              <div class="user-photo-card-copy">
-                <h3>{{ item.photo.file_name }}</h3>
-                {% if item.evidence_labels %}
-                  <div class="user-photo-evidence-list">
-                    {% for label in item.evidence_labels %}
-                      <span>{{ label }}</span>
-                    {% endfor %}
-                  </div>
-                {% endif %}
-                <p class="user-photo-evidence">Faces detected: {{ item.face_count }}</p>
-              </div>
-              <div class="user-photo-card-actions">
-                <a class="admin-open-link admin-open-link-subtle" href="/user/events/{{ event.id }}/photos/{{ item.photo.id }}/download">Download</a>
-              </div>
-            </article>
-          {% endfor %}
+        <div class="user-results-toolbar">
+          <a
+            class="admin-button admin-button-primary"
+            href="/user/events/{{ event.id }}/download-all"
+            data-download-all
+          >Download all {{ total_result_count }} as ZIP</a>
+          <p data-download-all-status role="status" aria-live="polite">Creates one ZIP containing every original matched photo.</p>
+        </div>
+        <div class="user-results-grid" id="search-results-grid" data-results-grid>
+          {% include "_user_photo_cards.html" %}
+        </div>
+        <div class="user-load-more" data-load-more-wrap {% if not has_more_results %}hidden{% endif %}>
+          <a
+            class="admin-button admin-button-secondary"
+            href="/user/events/{{ event.id }}?view=results&page={{ results_page + 1 }}"
+            data-load-more
+            data-next-page="{{ results_page + 1 }}"
+            data-endpoint="/user/events/{{ event.id }}/results-page"
+            aria-controls="search-results-grid"
+          >Load 20 more</a>
+          <p data-load-more-status role="status" aria-live="polite">Showing {{ face_search_results|length }} of {{ total_result_count }} photos.</p>
         </div>
       {% else %}
-        <div class="user-results-grid" data-search-results-grid hidden></div>
-        <div class="admin-empty-state admin-empty-state-tight" data-search-empty-state>
-          <h4>No face matches yet</h4>
-          <p>Searching securely in the background. Results will appear here automatically.</p>
+        <div class="admin-empty-state admin-empty-state-tight">
+          {% if face_search_session.status in ['queued', 'processing'] %}
+            <h4>Search in progress</h4>
+            <p>Refresh this page shortly to check for results.</p>
+          {% elif face_search_session.status == 'failed' %}
+            <h4>Search could not be completed</h4>
+            <p>Check the bib number and try again. Adding a different selfie may improve the search.</p>
+          {% else %}
+            <h4>No photos found</h4>
+            <p>Check the bib number or try adding a selfie.</p>
+          {% endif %}
         </div>
       {% endif %}
-      <div class="admin-form-actions" data-search-load-more {% if not next_result_cursor %}hidden{% endif %}>
-        <button class="admin-button admin-button-secondary" type="button" data-search-load-more-button data-next-cursor="{{ next_result_cursor or '' }}">Load more photos</button>
-      </div>
+      <nav class="user-results-actions" aria-label="Search again">
+        <a class="admin-button admin-button-primary" href="/user/events/{{ event.id }}">Search Again</a>
+        <a class="admin-button admin-button-secondary" href="/user">Choose Another Event</a>
+      </nav>
     </section>
   {% endif %}
 {% endblock %}
@@ -127,97 +145,70 @@
   {{ super() }}
   {% if face_search_session %}
   <script nonce="{{ csp_nonce }}">
+    window.history.replaceState({}, document.title, window.location.pathname);
+
     (() => {
-      const endpoint = "/user/events/{{ event.id }}/results";
-      const grid = document.querySelector("[data-search-results-grid]");
-      const emptyState = document.querySelector("[data-search-empty-state]");
-      const loadMore = document.querySelector("[data-search-load-more]");
-      const loadMoreButton = document.querySelector("[data-search-load-more-button]");
-      const count = document.querySelector("[data-search-result-count]");
-      const status = document.querySelector(".upload-status-pill");
-      if (!grid || !loadMore || !loadMoreButton || !count || !status) return;
+      const grid = document.querySelector("[data-results-grid]");
+      const wrap = document.querySelector("[data-load-more-wrap]");
+      const button = document.querySelector("[data-load-more]");
+      const status = document.querySelector("[data-load-more-status]");
+      if (!grid || !wrap || !button || !status) return;
 
-      let loading = false;
-      const addCard = (item) => {
-        const card = document.createElement("article");
-        card.className = "user-photo-card";
-        const preview = document.createElement("a");
-        preview.className = "user-photo-preview";
-        preview.href = item.photo_url || item.download_url;
-        preview.target = "_blank";
-        preview.rel = "noreferrer";
-        if (item.photo_url) {
-          const image = document.createElement("img");
-          image.src = item.photo_url;
-          image.alt = item.file_name;
-          image.className = "gallery-image user-result-image";
-          preview.append(image);
-        } else {
-          const fallback = document.createElement("span");
-          fallback.className = "user-photo-fallback";
-          fallback.textContent = "Preview unavailable";
-          preview.append(fallback);
-        }
-        const copy = document.createElement("div");
-        copy.className = "user-photo-card-copy";
-        const name = document.createElement("h3");
-        name.textContent = item.file_name;
-        copy.append(name);
-        if (item.evidence_labels.length) {
-          const labels = document.createElement("div");
-          labels.className = "user-photo-evidence-list";
-          item.evidence_labels.forEach((label) => {
-            const badge = document.createElement("span");
-            badge.textContent = label;
-            labels.append(badge);
-          });
-          copy.append(labels);
-        }
-        const faces = document.createElement("p");
-        faces.className = "user-photo-evidence";
-        faces.textContent = `Faces detected: ${item.face_count}`;
-        copy.append(faces);
-        const actions = document.createElement("div");
-        actions.className = "user-photo-card-actions";
-        const download = document.createElement("a");
-        download.className = "admin-open-link admin-open-link-subtle";
-        download.href = item.download_url;
-        download.textContent = "Download";
-        actions.append(download);
-        card.append(preview, copy, actions);
-        grid.append(card);
-      };
-
-      const loadPage = async (cursor = "") => {
-        if (loading) return;
-        loading = true;
-        loadMoreButton.disabled = true;
+      let loaded = grid.children.length;
+      button.addEventListener("click", async (event) => {
+        event.preventDefault();
+        if (button.getAttribute("aria-busy") === "true") return;
+        const page = Number.parseInt(button.dataset.nextPage || "2", 10);
+        button.setAttribute("aria-busy", "true");
+        button.textContent = "Loading...";
+        status.textContent = "Loading 20 more photos...";
         try {
-          const response = await fetch(`${endpoint}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, { credentials: "same-origin" });
-          if (!response.ok) return;
-          const payload = await response.json();
-          status.textContent = payload.status;
-          status.className = `admin-status-pill upload-status-pill-${payload.status}`;
-          count.textContent = `${payload.result_count} Hybrid Match${payload.result_count === 1 ? "" : "es"}`;
-          payload.items.forEach(addCard);
-          if (payload.items.length) {
-            grid.hidden = false;
-            if (emptyState) emptyState.hidden = true;
+          const response = await fetch(`${button.dataset.endpoint}?page=${page}`, {
+            headers: { Accept: "text/html" },
+            credentials: "same-origin",
+          });
+          if (!response.ok) throw new Error("Results request failed");
+          const html = await response.text();
+          const added = Number.parseInt(response.headers.get("X-RaceFrame-Result-Count") || "0", 10);
+          grid.insertAdjacentHTML("beforeend", html);
+          loaded += added;
+          const hasMore = response.headers.get("X-RaceFrame-Has-More") === "1";
+          status.textContent = added ? `${added} more photos loaded. ${loaded} shown.` : "No more photos to load.";
+          if (hasMore) {
+            button.dataset.nextPage = String(page + 1);
+            button.href = `/user/events/{{ event.id }}?view=results&page=${page + 1}`;
+            button.textContent = "Load 20 more";
+          } else {
+            button.hidden = true;
           }
-          loadMoreButton.dataset.nextCursor = payload.next_cursor || "";
-          loadMore.hidden = !payload.next_cursor;
-          if (payload.status === "queued" || payload.status === "processing") {
-            window.setTimeout(() => loadPage(""), 1500);
-          }
+        } catch (_error) {
+          button.textContent = "Try loading again";
+          status.textContent = "More photos could not be loaded. Check your connection and try again.";
         } finally {
-          loading = false;
-          loadMoreButton.disabled = false;
+          button.removeAttribute("aria-busy");
         }
-      };
+      });
+    })();
 
-      loadMoreButton.addEventListener("click", () => loadPage(loadMoreButton.dataset.nextCursor || ""));
-      if (status.textContent === "queued" || status.textContent === "processing") loadPage("");
-      window.history.replaceState({}, document.title, window.location.pathname);
+    (() => {
+      const link = document.querySelector("[data-download-all]");
+      const status = document.querySelector("[data-download-all-status]");
+      if (!link || !status) return;
+      link.addEventListener("click", (event) => {
+        if (link.getAttribute("aria-busy") === "true") {
+          event.preventDefault();
+          return;
+        }
+        const originalLabel = link.textContent;
+        link.setAttribute("aria-busy", "true");
+        link.textContent = "Preparing ZIP…";
+        status.textContent = "Packaging every original matched photo into one download…";
+        window.setTimeout(() => {
+          link.removeAttribute("aria-busy");
+          link.textContent = originalLabel;
+          status.textContent = "Your ZIP download has started. Large result sets may take a moment.";
+        }, 4000);
+      });
     })();
   </script>
   {% endif %}
@@ -228,10 +219,23 @@
       const preview = form && form.querySelector("[data-selfie-preview]");
       const idle = form && form.querySelector("[data-selfie-idle]");
       const fileName = form && form.querySelector("[data-selfie-file-name]");
+      const removeButton = form && form.querySelector("[data-selfie-remove]");
       const error = form && form.querySelector("[data-search-error]");
       const button = form && form.querySelector("[data-search-button]");
+      const loading = document.querySelector("[data-search-loading]");
       let previewUrl = "";
-      if (!form || !selfieInput || !preview || !idle || !fileName || !error || !button) return;
+      if (!form || !selfieInput || !preview || !idle || !fileName || !removeButton || !error || !button || !loading) return;
+
+      const clearSelfies = () => {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = "";
+        selfieInput.value = "";
+        preview.removeAttribute("src");
+        preview.hidden = true;
+        fileName.hidden = true;
+        removeButton.hidden = true;
+        idle.hidden = false;
+      };
 
       selfieInput.addEventListener("change", () => {
         const [file] = selfieInput.files;
@@ -239,9 +243,7 @@
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         previewUrl = "";
         if (!file) {
-          preview.hidden = true;
-          fileName.hidden = true;
-          idle.hidden = false;
+          clearSelfies();
           return;
         }
         if (!file.type.startsWith("image/")) {
@@ -256,7 +258,9 @@
         idle.hidden = true;
         fileName.textContent = selfieInput.files.length === 1 ? file.name : `${selfieInput.files.length} selfies selected`;
         fileName.hidden = false;
+        removeButton.hidden = false;
       });
+      removeButton.addEventListener("click", clearSelfies);
 
       form.addEventListener("submit", (event) => {
         error.hidden = true;
@@ -264,6 +268,9 @@
         form.action = selfieInput.files.length ? form.dataset.selfieAction : form.dataset.bibOnlyAction;
         button.disabled = true;
         button.textContent = "Searching…";
+        loading.style.minHeight = `${Math.ceil(form.getBoundingClientRect().height)}px`;
+        form.hidden = true;
+        loading.hidden = false;
       });
     })();
   </script>

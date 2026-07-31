@@ -32,6 +32,9 @@ class Settings:
     r2_presigned_url_ttl_seconds: int = int(os.getenv("CLOUDFLARE_R2_PRESIGNED_URL_TTL_SECONDS", "3600"))
     max_photo_upload_bytes: int = int(os.getenv("MAX_PHOTO_UPLOAD_BYTES", str(25 * 1024 * 1024)))
     max_selfie_upload_bytes: int = int(os.getenv("MAX_SELFIE_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+    max_event_thumbnail_upload_bytes: int = int(
+        os.getenv("MAX_EVENT_THUMBNAIL_UPLOAD_BYTES", str(10 * 1024 * 1024))
+    )
     max_participant_upload_bytes: int = int(os.getenv("MAX_PARTICIPANT_UPLOAD_BYTES", str(5 * 1024 * 1024)))
     max_photo_batch_files: int = int(os.getenv("MAX_PHOTO_BATCH_FILES", "50"))
     max_selfie_batch_files: int = int(os.getenv("MAX_SELFIE_BATCH_FILES", "5"))
@@ -50,7 +53,6 @@ class Settings:
     max_face_search_backlog: int = int(os.getenv("MAX_FACE_SEARCH_BACKLOG", "100"))
     max_photo_job_backlog: int = int(os.getenv("MAX_PHOTO_JOB_BACKLOG", "10000"))
     max_search_results: int = int(os.getenv("MAX_SEARCH_RESULTS", "250"))
-    search_result_page_size: int = int(os.getenv("SEARCH_RESULT_PAGE_SIZE", "24"))
     max_search_faces_per_event: int = int(os.getenv("MAX_SEARCH_FACES_PER_EVENT", "25000"))
     search_capability_ttl_seconds: int = int(os.getenv("SEARCH_CAPABILITY_TTL_SECONDS", "3600"))
     biometric_retention_hours: int = int(os.getenv("BIOMETRIC_RETENTION_HOURS", "24"))

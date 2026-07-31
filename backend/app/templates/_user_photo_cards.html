@@ -1,0 +1,25 @@
+{% for item in face_search_results %}
+  <article class="user-photo-card">
+    <a class="user-photo-preview" href="{{ item.photo_url if item.photo_url else '/user/events/' ~ event.id ~ '/photos/' ~ item.photo.id ~ '/download?page=' ~ (results_page|default(1)) }}" target="_blank" rel="noreferrer">
+      {% if item.photo_url %}
+        <img src="{{ item.photo_url }}" alt="{{ item.photo.file_name }}" class="gallery-image user-result-image" loading="lazy" width="640" height="480" />
+      {% else %}
+        <span class="user-photo-fallback">Preview unavailable</span>
+      {% endif %}
+    </a>
+    <div class="user-photo-card-copy">
+      <h3>{{ item.photo.file_name }}</h3>
+      {% if item.evidence_labels %}
+        <details class="user-match-details">
+          <summary>Why this matched</summary>
+          <div class="user-photo-evidence-list">
+            {% for label in item.evidence_labels %}<span>{{ label }}</span>{% endfor %}
+          </div>
+        </details>
+      {% endif %}
+    </div>
+    <div class="user-photo-card-actions">
+      <a class="admin-open-link admin-open-link-subtle" data-photo-download href="/user/events/{{ event.id }}/photos/{{ item.photo.id }}/download?page={{ results_page|default(1) }}">Download</a>
+    </div>
+  </article>
+{% endfor %}

@@ -29,7 +29,6 @@ WORKER_VERSION = os.getenv("WORKER_VERSION", "development").strip()
 WORKER_HEARTBEAT_SECONDS = float(os.getenv("WORKER_HEARTBEAT_SECONDS", "30"))
 WORKER_HTTP_RETRIES = int(os.getenv("WORKER_HTTP_RETRIES", "4"))
 WORKER_HTTP_BACKOFF_SECONDS = float(os.getenv("WORKER_HTTP_BACKOFF_SECONDS", "0.75"))
-WORKER_BIB_SEARCH_TIMEOUT_SECONDS = float(os.getenv("WORKER_BIB_SEARCH_TIMEOUT_SECONDS", "270"))
 WORKER_MAX_DOWNLOAD_BYTES = int(os.getenv("WORKER_MAX_DOWNLOAD_BYTES", str(25 * 1024 * 1024)))
 WORKER_MAX_IMAGE_PIXELS = int(os.getenv("WORKER_MAX_IMAGE_PIXELS", "40000000"))
 WORKER_MAX_IMAGE_DIMENSION = int(os.getenv("WORKER_MAX_IMAGE_DIMENSION", "12000"))
@@ -94,8 +93,6 @@ def require_config() -> None:
         raise WorkerConfigError("WORKER_POLL_SECONDS must be between 0.1 and 60.")
     if not (1 <= WORKER_HTTP_RETRIES <= 10):
         raise WorkerConfigError("WORKER_HTTP_RETRIES must be between 1 and 10.")
-    if not (30 <= WORKER_BIB_SEARCH_TIMEOUT_SECONDS <= 900):
-        raise WorkerConfigError("WORKER_BIB_SEARCH_TIMEOUT_SECONDS must be between 30 and 900.")
     if not (10 <= WORKER_HEARTBEAT_SECONDS <= 300):
         raise WorkerConfigError("WORKER_HEARTBEAT_SECONDS must be between 10 and 300.")
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", WORKER_ID):
@@ -793,18 +790,6 @@ def process_face_search_job(client: BackendClient, job: dict[str, Any], heartbea
     )
 
 
-def process_bib_search_job(client: BackendClient, job: dict[str, Any], heartbeat: LeaseHeartbeat) -> None:
-    """Ask the backend to run its database-only search work under this lease."""
-
-    heartbeat.ensure_owned()
-    client.post(
-        _operation_path(job, "complete"),
-        {"attempt_id": job["attempt_id"]},
-        retry_safe=True,
-        timeout=(5.0, WORKER_BIB_SEARCH_TIMEOUT_SECONDS),
-    )
-
-
 def process_photo_job(client: BackendClient, job: dict[str, Any], heartbeat: LeaseHeartbeat) -> None:
     image_bytes = client.download(job["photo"].get("download_url"))
     heartbeat.ensure_owned()
@@ -936,7 +921,6 @@ class FairClaimPoller:
         self._claims = (
             ("/internal/worker/face-jobs/claim", {}, process_face_job),
             ("/internal/worker/face-search-jobs/claim", {}, process_face_search_job),
-            ("/internal/worker/bib-search-jobs/claim", {}, process_bib_search_job),
             ("/internal/worker/photo-jobs/claim", {"job_types": WORKER_JOB_TYPES}, process_photo_job),
         )
 

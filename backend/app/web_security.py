@@ -370,6 +370,10 @@ class RequestBodyLimitMiddleware:
             return settings.max_selfie_upload_bytes * settings.max_selfie_batch_files + overhead
         if path.startswith("/admin/events/") and path.endswith("/participants/upload"):
             return settings.max_participant_upload_bytes + overhead
+        if path == "/admin/events/new" or (
+            path.startswith("/admin/events/") and path.endswith("/edit")
+        ):
+            return settings.max_event_thumbnail_upload_bytes + overhead
         return settings.max_form_request_bytes
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:

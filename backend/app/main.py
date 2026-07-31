@@ -9,10 +9,10 @@ from functools import partial
 from html import escape
 from pathlib import Path
 from urllib.parse import urlencode
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
@@ -43,16 +43,22 @@ from .admin import (
 from .audit_log import append_admin_audit
 from .config import settings
 from .db import Base, SessionLocal, engine, get_db
-from .face import enqueue_bib_only_face_search_session, ingest_face_search_upload
+from .event_thumbnail import (
+    PreparedEventThumbnail,
+    prepare_event_thumbnail,
+    remove_event_thumbnail,
+    save_event_thumbnail,
+)
+from .face import create_bib_only_face_search_session, ingest_face_search_upload
 from .health import application_ready
-from .models import BibSearchJob, FaceSearchJob, FaceSearchSession, Participant, Photo, PhotoJob
+from .models import FaceSearchJob, Participant, Photo, PhotoJob
 from .metrics import metrics_response, require_metrics_token
 from .observability import RequestContextMiddleware, configure_logging
 from .participant_lookup import normalize_name_lookup
+from .photo_archive import safe_download_name, stream_photo_zip
 from .photographer import (
     build_event_photo_stats,
     count_event_participants,
-    count_face_search_photo_items,
     delete_all_event_photos,
     delete_photo,
     generate_photo_access_url,
@@ -65,7 +71,6 @@ from .photographer import (
     normalize_match_token,
     rebuild_event_photo_matches,
     safe_photo_access_url,
-    search_session_allows_photo,
 )
 from .rate_limits import hit_persistent_limit
 from .worker_api import router as worker_router
@@ -92,6 +97,7 @@ templates = Jinja2Templates(
     context_processors=[template_security_context],
 )
 ADMIN_SESSION_COOKIE = "raceframe_admin_session"
+SEARCH_RESULTS_PAGE_SIZE = 20
 logger = logging.getLogger(__name__)
 configure_logging(json_logs=is_production())
 
@@ -227,19 +233,20 @@ def bind_search_capability(request: Request, db: Session, *, event, search_sessi
     return capability
 
 
-def authorized_search_session(request: Request, db: Session, *, event) -> FaceSearchSession | None:
+def authorized_search_results(request: Request, db: Session, *, event, offset: int = 0, limit: int = SEARCH_RESULTS_PAGE_SIZE):
     capability = request_search_capability(request, event_id=str(event.id))
     if capability is None:
-        return None
-    try:
-        session_id = UUID(capability.session_id)
-    except (TypeError, ValueError):
-        return None
-    search_session = db.execute(
-        select(FaceSearchSession).where(FaceSearchSession.id == session_id, FaceSearchSession.event_id == event.id)
-    ).scalar_one_or_none()
+        return None, [], 0
+
+    search_session, results, total = list_face_search_photo_items(
+        db,
+        event=event,
+        face_session_id=capability.session_id,
+        offset=offset,
+        limit=limit,
+    )
     if search_session is None:
-        return None
+        return None, [], 0
     expires_at = getattr(search_session, "expires_at", None)
     stored_capability_hash = getattr(search_session, "capability_hash", None)
     stored_owner_hash = getattr(search_session, "owner_binding_hash", None)
@@ -252,15 +259,17 @@ def authorized_search_session(request: Request, db: Session, *, event) -> FaceSe
         or not hmac.compare_digest(stored_owner_hash, capability.owner_hash)
         or not hmac.compare_digest(stored_owner_hash, owner_binding_hash(request.state.visitor_id))
     ):
-        return None
-    return search_session
+        return None, [], 0
+    return search_session, results, total
 
 
-def authorized_search_results(request: Request, db: Session, *, event, cursor: str | None = None):
-    search_session = authorized_search_session(request, db, event=event)
-    if search_session is None:
-        return None, []
-    return list_face_search_photo_items(db, event=event, face_session_id=str(search_session.id), cursor=cursor)
+def search_results_page_number(request: Request) -> int:
+    try:
+        page = int(request.query_params.get("page", "1"))
+    except ValueError:
+        return 1
+    max_page = max(1, (settings.max_search_results + SEARCH_RESULTS_PAGE_SIZE - 1) // SEARCH_RESULTS_PAGE_SIZE)
+    return max(1, min(page, max_page))
 
 
 async def redirect_with_search_capability(
@@ -434,6 +443,21 @@ def parse_event_date(raw_value: str) -> date | None:
     return date.fromisoformat(raw_value) if raw_value else None
 
 
+async def read_event_thumbnail(upload: UploadFile | None) -> PreparedEventThumbnail | None:
+    if upload is None or not (upload.filename or "").strip():
+        return None
+    try:
+        content = await read_upload_limited(upload, settings.max_event_thumbnail_upload_bytes)
+    except HTTPException as exc:
+        raise ValueError(str(exc.detail)) from None
+    return await run_in_threadpool(
+        prepare_event_thumbnail,
+        content=content,
+        file_name=upload.filename or "thumbnail.jpg",
+        content_type=upload.content_type,
+    )
+
+
 def event_participants(session: Session, event_id) -> list[Participant]:
     return list_participants(session, event_id=event_id)
 
@@ -549,6 +573,17 @@ def user_event_list_page(request: Request, db: Session = Depends(get_db)) -> HTM
     return templates.TemplateResponse(request, "user_event_list.html", context)
 
 
+@app.get("/user/events/{event_id}/thumbnail", include_in_schema=False)
+def user_event_thumbnail(event_id: str, db: Session = Depends(get_db)) -> Response:
+    event = get_published_event(db, event_id)
+    if event is None or not event.thumbnail_object_key:
+        raise HTTPException(status_code=404, detail="Event thumbnail not found.")
+    access_url = generate_photo_access_url(event.thumbnail_object_key)
+    if not access_url:
+        raise HTTPException(status_code=503, detail="Event thumbnail is temporarily unavailable.")
+    return RedirectResponse(url=access_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+
 @app.get("/user/events/{event_id}", response_class=HTMLResponse)
 def user_event_search_page(
     request: Request,
@@ -565,15 +600,15 @@ def user_event_search_page(
     search_term = ""
     results = []
     matched_participants = []
-    face_search_session, face_search_results = (None, [])
-    next_cursor = None
-    search_result_total = 0
+    face_search_session, face_search_results, total_result_count = (None, [], 0)
+    results_page = search_results_page_number(request)
     if request.query_params.get("view") == "results":
-        face_search_session, face_search_results = authorized_search_results(request, db, event=event)
-        if face_search_session is not None:
-            search_result_total = count_face_search_photo_items(db, search_session_id=face_search_session.id)
-            if len(face_search_results) >= min(max(settings.search_result_page_size, 1), 48):
-                next_cursor = face_search_results[-1].result_cursor
+        face_search_session, face_search_results, total_result_count = authorized_search_results(
+            request,
+            db,
+            event=event,
+            offset=(results_page - 1) * SEARCH_RESULTS_PAGE_SIZE,
+        )
     if face_search_session is not None and face_search_session.participant is not None:
         search_term = face_search_session.participant.bib_number
 
@@ -585,8 +620,10 @@ def user_event_search_page(
         "results": results,
         "face_search_session": face_search_session,
         "face_search_results": face_search_results,
-        "search_result_total": search_result_total,
-        "next_result_cursor": next_cursor,
+        "total_result_count": total_result_count,
+        "results_page": results_page,
+        "results_page_size": SEARCH_RESULTS_PAGE_SIZE,
+        "has_more_results": results_page * SEARCH_RESULTS_PAGE_SIZE < total_result_count,
         "matched_participants": matched_participants,
         "message": request.query_params.get("message"),
         "message_level": request.query_params.get("level", "success"),
@@ -595,6 +632,30 @@ def user_event_search_page(
         "nav_home_label": "Find Photos",
     }
     return templates.TemplateResponse(request, "user_event_search.html", context)
+
+
+@app.get("/user/events/{event_id}/results-page", response_class=HTMLResponse, include_in_schema=False)
+def user_event_results_page(request: Request, event_id: str, db: Session = Depends(get_db)) -> Response:
+    event = get_published_event(db, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Published event not found.")
+    page = search_results_page_number(request)
+    search_session, results, total = authorized_search_results(
+        request,
+        db,
+        event=event,
+        offset=(page - 1) * SEARCH_RESULTS_PAGE_SIZE,
+    )
+    if search_session is None:
+        raise HTTPException(status_code=403, detail="Search results are no longer available. Start a new search.")
+    response = templates.TemplateResponse(
+        request,
+        "_user_photo_cards.html",
+        {"request": request, "event": event, "face_search_results": results, "results_page": page},
+    )
+    response.headers["X-RaceFrame-Result-Count"] = str(len(results))
+    response.headers["X-RaceFrame-Has-More"] = "1" if page * SEARCH_RESULTS_PAGE_SIZE < total else "0"
+    return response
 
 
 @app.post("/user/events/{event_id}/selfies", dependencies=[Depends(require_browser_csrf)])
@@ -686,7 +747,7 @@ async def user_upload_selfies_by_search(
         event=event,
         search_session=face_search_session,
         message=message,
-        level="error" if failed_notes and not search_queued_count else "success",
+        level="error" if failed_notes and not search_queued_count else "info",
     )
 
 
@@ -718,33 +779,25 @@ async def user_bib_only_search(
             level="error",
         )
 
-    await run_in_threadpool(
+    face_search_session, seed_count = await run_in_threadpool(
         partial(
-            ensure_job_capacity,
-            db,
-            model=BibSearchJob,
-            limit=settings.max_face_search_backlog,
-            expected_new_jobs=1,
-            detail="Search processing is temporarily full. Please retry shortly.",
-        )
-    )
-
-    face_search_session = await run_in_threadpool(
-        partial(
-            enqueue_bib_only_face_search_session,
+            create_bib_only_face_search_session,
             db,
             event_id=event.id,
             participant=participant,
         )
     )
-    message = "Search queued. Your results will appear automatically when processing finishes."
+    message = (
+        "Started bib-only reinforced search. "
+        f"Temporary face seeds found: {seed_count}."
+    )
     return await redirect_with_search_capability(
         request,
         db,
         event=event,
         search_session=face_search_session,
         message=message,
-        level="success",
+        level="info" if seed_count else "error",
     )
 
 
@@ -772,61 +825,29 @@ def find_event_participant(db: Session, *, event_id, query: str) -> Participant 
     return exact_name_matches[0] if len(exact_name_matches) == 1 else None
 
 
-@app.get("/user/events/{event_id}/results")
-def user_search_results_page(
+@app.get("/user/events/{event_id}/photos/{photo_id}/download")
+def user_download_photo(
     request: Request,
     event_id: str,
-    cursor: str | None = None,
+    photo_id: str,
+    page: int = 1,
     db: Session = Depends(get_db),
-) -> JSONResponse:
-    """Return one small, capability-authorized page of materialized result cards."""
-
+) -> Response:
     event = get_published_event(db, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Published event not found.")
-    search_session, items = authorized_search_results(request, db, event=event, cursor=cursor)
-    if search_session is None:
-        raise HTTPException(status_code=404, detail="Search results not found.")
 
-    page_size = min(max(settings.search_result_page_size, 1), 48)
-    next_cursor = items[-1].result_cursor if len(items) >= page_size else None
-    return JSONResponse(
-        {
-            "status": search_session.status,
-            "result_count": count_face_search_photo_items(db, search_session_id=search_session.id),
-            "next_cursor": next_cursor,
-            "items": [
-                {
-                    "photo_id": str(item.photo.id),
-                    "file_name": item.photo.file_name,
-                    "photo_url": item.photo_url,
-                    "evidence_labels": item.evidence_labels,
-                    "face_count": item.face_count,
-                    "download_url": f"/user/events/{event.id}/photos/{item.photo.id}/download",
-                }
-                for item in items
-            ],
-        }
+    safe_page = max(1, min(page, search_results_page_number(request)))
+    _, authorized_items, _ = authorized_search_results(
+        request,
+        db,
+        event=event,
+        offset=(safe_page - 1) * SEARCH_RESULTS_PAGE_SIZE,
     )
-
-
-@app.get("/user/events/{event_id}/photos/{photo_id}/download")
-def user_download_photo(request: Request, event_id: str, photo_id: str, db: Session = Depends(get_db)) -> Response:
-    event = get_published_event(db, event_id)
-    if event is None:
-        raise HTTPException(status_code=404, detail="Published event not found.")
-
-    search_session = authorized_search_session(request, db, event=event)
-    if search_session is None or not search_session_allows_photo(
-        db, event_id=event.id, search_session_id=search_session.id, photo_id=photo_id
-    ):
+    if not any(str(item.photo.id) == str(photo_id) for item in authorized_items):
         raise HTTPException(status_code=404, detail="Photo not found.")
 
-    try:
-        parsed_photo_id = UUID(photo_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Photo not found.") from None
-    photo = db.execute(select(Photo).where(Photo.id == parsed_photo_id, Photo.event_id == event.id)).scalar_one_or_none()
+    photo = get_event_photo(db, event_id=event.id, photo_id=photo_id)
     if photo is None:
         raise HTTPException(status_code=404, detail="Photo not found.")
 
@@ -843,11 +864,47 @@ def user_download_photo(request: Request, event_id: str, photo_id: str, db: Sess
 
 @app.get("/user/events/{event_id}/download-all")
 def user_download_all_photos(
+    request: Request,
     event_id: str,
-    q: str = "",
     db: Session = Depends(get_db),
 ) -> Response:
-    raise HTTPException(status_code=410, detail="Download all is disabled for temporary hybrid searches.")
+    event = get_published_event(db, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Published event not found.")
+
+    photos: list[Photo] = []
+    offset = 0
+    total = 1
+    while offset < total:
+        search_session, items, total = authorized_search_results(
+            request,
+            db,
+            event=event,
+            offset=offset,
+        )
+        if search_session is None:
+            raise HTTPException(status_code=403, detail="Search results are no longer available. Start a new search.")
+        if not items:
+            break
+        photos.extend(item.photo for item in items)
+        offset += SEARCH_RESULTS_PAGE_SIZE
+
+    if not photos:
+        raise HTTPException(status_code=404, detail="No matched photos are available to download.")
+    if sum(photo.file_size for photo in photos) > 3_500_000_000:
+        raise HTTPException(status_code=413, detail="This result set is too large for one archive. Download photos individually.")
+
+    archive_name = safe_download_name(f"{event.slug or 'raceframe'}-photos.zip", fallback="raceframe-photos.zip")
+    entries = [(photo.original_object_key, photo.file_name) for photo in photos]
+    return StreamingResponse(
+        stream_photo_zip(entries),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{archive_name}"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.get("/upload/events/{event_id}", response_class=HTMLResponse)
@@ -998,12 +1055,13 @@ async def photographer_upload_action(
     response_class=HTMLResponse,
     dependencies=[Depends(require_browser_csrf)],
 )
-def create_event_action(
+async def create_event_action(
     request: Request,
     name: str = Form(...),
     event_date: str = Form(""),
     location: str = Form(""),
     status_value: str = Form("draft", alias="status"),
+    thumbnail_file: UploadFile | None = File(None),
     db: Session = Depends(get_db),
 ):
     normalized_name = name.strip()
@@ -1054,6 +1112,20 @@ def create_event_action(
             form_values=form_values,
         )
 
+    try:
+        prepared_thumbnail = await read_event_thumbnail(thumbnail_file)
+    except ValueError as exc:
+        return render_event_form(
+            request,
+            page_title="Create Event",
+            submit_label="Create Event",
+            form_action="/admin/events/new",
+            event=None,
+            auto_slug=generate_unique_slug(db, name=normalized_name or "event"),
+            error_message=str(exc),
+            form_values=form_values,
+        )
+
     normalized_slug = generate_unique_slug(db, name=normalized_name)
 
     event = create_event(
@@ -1064,6 +1136,13 @@ def create_event_action(
         location=normalized_location,
         status=status_value,
     )
+    thumbnail_error = False
+    if prepared_thumbnail is not None:
+        try:
+            await run_in_threadpool(save_event_thumbnail, db, event=event, prepared=prepared_thumbnail)
+        except Exception:
+            logger.exception("Event thumbnail upload failed", extra={"event_id": str(event.id)})
+            thumbnail_error = True
     append_admin_audit(
         db,
         request,
@@ -1072,7 +1151,16 @@ def create_event_action(
         target_id=event.id,
         event_id=event.id,
     )
-    return redirect_with_message(f"/admin/events/{event.id}/edit", message="Event created.")
+    if thumbnail_error:
+        return redirect_with_message(
+            f"/admin/events/{event.id}/edit",
+            message="Event created, but the thumbnail could not be saved. Try uploading it again.",
+            level="error",
+        )
+    return redirect_with_message(
+        f"/admin/events/{event.id}/edit",
+        message="Event created with thumbnail." if prepared_thumbnail else "Event created.",
+    )
 
 
 @app.get("/admin/events/{event_id}/edit", response_class=HTMLResponse)
@@ -1091,13 +1179,15 @@ def edit_event_page(request: Request, event_id: str, db: Session = Depends(get_d
     response_class=HTMLResponse,
     dependencies=[Depends(require_browser_csrf)],
 )
-def edit_event_action(
+async def edit_event_action(
     request: Request,
     event_id: str,
     name: str = Form(...),
     event_date: str = Form(""),
     location: str = Form(""),
     status_value: str = Form("draft", alias="status"),
+    thumbnail_file: UploadFile | None = File(None),
+    remove_thumbnail: bool = Form(False),
     db: Session = Depends(get_db),
 ):
     event = get_event(db, event_id)
@@ -1130,6 +1220,19 @@ def edit_event_action(
             form_values=form_values,
         )
 
+    try:
+        prepared_thumbnail = await read_event_thumbnail(thumbnail_file)
+    except ValueError as exc:
+        return render_existing_event_form(request, event=event, db=db, error_message=str(exc), form_values=form_values)
+    if prepared_thumbnail is not None and remove_thumbnail:
+        return render_existing_event_form(
+            request,
+            event=event,
+            db=db,
+            error_message="Choose a new thumbnail or remove the current one, not both.",
+            form_values=form_values,
+        )
+
     normalized_slug = generate_unique_slug(db, name=normalized_name, exclude_event_id=str(event.id))
 
     update_event(
@@ -1141,6 +1244,17 @@ def edit_event_action(
         location=normalized_location,
         status=status_value,
     )
+    thumbnail_error = False
+    thumbnail_changed = False
+    try:
+        if prepared_thumbnail is not None:
+            await run_in_threadpool(save_event_thumbnail, db, event=event, prepared=prepared_thumbnail)
+            thumbnail_changed = True
+        elif remove_thumbnail:
+            thumbnail_changed = await run_in_threadpool(remove_event_thumbnail, db, event=event)
+    except Exception:
+        logger.exception("Event thumbnail update failed", extra={"event_id": str(event.id)})
+        thumbnail_error = True
     append_admin_audit(
         db,
         request,
@@ -1149,7 +1263,19 @@ def edit_event_action(
         target_id=event.id,
         event_id=event.id,
     )
-    return redirect_with_message(f"/admin/events/{event.id}/edit", message="Event updated.")
+    if thumbnail_error:
+        return redirect_with_message(
+            f"/admin/events/{event.id}/edit",
+            message="Event details were saved, but the thumbnail could not be updated. Try again.",
+            level="error",
+        )
+    if prepared_thumbnail is not None:
+        message = "Event changes and thumbnail saved."
+    elif remove_thumbnail and thumbnail_changed:
+        message = "Event changes saved and thumbnail removed."
+    else:
+        message = "Event changes saved."
+    return redirect_with_message(f"/admin/events/{event.id}/edit", message=message)
 
 
 @app.post("/admin/events/{event_id}/delete", dependencies=[Depends(require_browser_csrf)])

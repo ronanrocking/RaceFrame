@@ -2,27 +2,30 @@
 
 {% block body_class %}admin-theme admin-dashboard-page upload-events-page{% endblock %}
 {% block shell_class %}admin-shell{% endblock %}
+{% block site_brand_href %}/upload{% endblock %}
 
 {% block site_nav %}
-  <a class="site-nav-link" href="/admin">Admin</a>
   <a class="site-nav-link is-active" aria-current="page" href="/upload">Upload</a>
-  <a class="site-nav-link" href="/user">Find Photos</a>
+  <a class="site-nav-link" href="/admin">Admin</a>
+{% endblock %}
+{% block mobile_site_nav %}
+  <a href="/upload"><span>01</span>Upload</a>
+  <a href="/admin"><span>02</span>Admin</a>
 {% endblock %}
 
-{% block header_eyebrow %}<p class="page-eyebrow"><span>01</span> Photographer Workflow</p>{% endblock %}
-{% block header_title %}Photographer Upload{% endblock %}
-{% block header_subtitle %}<p class="admin-header-subtitle">Select a published race and deliver photography into the OCR and face-processing queue.</p>{% endblock %}
+{% block header_title %}Upload Photos{% endblock %}
+{% block header_subtitle %}<p class="admin-header-subtitle">Choose a published event to start an upload.</p>{% endblock %}
+{% block footer_note %}Photographer upload{% endblock %}
 {% block header_actions %}{% endblock %}
 
 {% block content %}
   {% if message %}
-    <p class="message message-{{ message_level }} admin-message">{{ message }}</p>
+    <p class="message message-{{ message_level }} admin-message" role="{% if message_level == 'error' %}alert{% else %}status{% endif %}">{{ message }}</p>
   {% endif %}
 
   <section class="admin-dashboard-table-section">
     <div class="admin-section-header">
       <div>
-        <p class="admin-section-label">Available Destinations</p>
         <h2>Published Events</h2>
       </div>
       <span class="admin-panel-meta">{{ events|length }} event{{ "" if events|length == 1 else "s" }}</span>
@@ -30,25 +33,24 @@
 
     {% if events %}
       <div class="admin-dashboard-table-wrap">
-        <table class="admin-dashboard-table">
+        <table class="admin-dashboard-table responsive-table">
           <thead>
             <tr>
               <th>Event Name</th>
               <th>Date</th>
               <th>Location</th>
-              <th>Open</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
             {% for event in events %}
               <tr>
-                <td>
+                <td data-label="Event">
                   <span class="admin-event-name">{{ event.name }}</span>
-                  <span class="admin-event-slug">{{ event.slug }}</span>
                 </td>
-                <td>{{ event.event_date if event.event_date else "-" }}</td>
-                <td>{{ event.location if event.location else "-" }}</td>
-                <td><a class="admin-open-link" href="/upload/events/{{ event.id }}">Open</a></td>
+                <td data-label="Date">{{ event.event_date if event.event_date else "-" }}</td>
+                <td data-label="Location">{{ event.location if event.location else "-" }}</td>
+                <td data-label="Action"><a class="admin-open-link" href="/upload/events/{{ event.id }}">Upload photos</a></td>
               </tr>
             {% endfor %}
           </tbody>
@@ -57,7 +59,7 @@
     {% else %}
       <div class="admin-empty-state admin-empty-state-tight">
         <h4>No published events</h4>
-        <p>Publish an event before starting photo uploads.</p>
+        <p>Ask an organizer to publish an event before uploading photos.</p>
       </div>
     {% endif %}
   </section>

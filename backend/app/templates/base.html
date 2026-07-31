@@ -6,13 +6,14 @@
     <title>{{ title if title else "RaceFrame" }}</title>
     <meta name="description" content="{% block meta_description %}RaceFrame helps race participants find event photos using bib and face evidence.{% endblock %}" />
     <meta name="theme-color" content="#f2f0e8" />
-    <link rel="stylesheet" href="/static/admin.css?v=27" />
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/admin.css?v=30" />
   </head>
   <body class="{% block body_class %}{% endblock %}">
     <a class="skip-link" href="#main-content">Skip to main content</a>
     <div class="site-chrome {% block site_chrome_class %}{% endblock %}">
       <div class="site-topbar">
-        <a class="site-brand" href="/admin">
+        <a class="site-brand" href="{% block site_brand_href %}/admin{% endblock %}">
           <span class="site-brand-glyph" aria-hidden="true"></span>
           <span class="site-brand-word"><span class="site-brand-mark">RACE</span><span class="site-brand-accent">FRAME</span></span>
         </a>
@@ -24,28 +25,20 @@
         {% endblock %}</nav>
         <details class="site-mobile-nav">
           <summary>Menu <span aria-hidden="true">+</span></summary>
-          <nav aria-label="Mobile primary">
+          <nav aria-label="Mobile primary">{% block mobile_site_nav %}
             <a href="/admin"><span>01</span>Admin</a>
             <a href="/upload"><span>02</span>Upload</a>
             <a href="/user"><span>03</span>Find Photos</a>
             <a href="/admin/events/new"><span>04</span>New Event</a>
-          </nav>
+          {% endblock %}</nav>
         </details>
       </div>
-      {% block site_marquee %}
-        <div class="site-marquee" aria-label="RaceFrame capabilities">
-          <div class="site-marquee-track">
-            <span class="site-marquee-text">{% block marquee_text %}FIND YOUR FRAME — BIB OCR — FACE EVIDENCE — EVENT PHOTOGRAPHY —{% endblock %}</span>
-            <span class="site-marquee-text" aria-hidden="true">{{ self.marquee_text() }}</span>
-            <span class="site-marquee-text" aria-hidden="true">{{ self.marquee_text() }}</span>
-          </div>
-        </div>
-      {% endblock %}
     </div>
     <main id="main-content" class="page-shell {% block shell_class %}{% endblock %}">
       <header class="page-header {% block page_header_class %}{% endblock %}">
         <div class="page-header-copy">
           <h1>{% block header_title %}Admin{% endblock %}</h1>
+          {% block header_subtitle %}{% endblock %}
         </div>
         <div class="page-header-actions">
           {% block header_actions %}
@@ -56,33 +49,25 @@
       {% block content %}{% endblock %}
     </main>
     <footer class="site-footer">
-      <div class="site-footer-grid">
-        <div class="site-footer-brand">
-          <p class="site-footer-wordmark">RACE<span>FRAME</span></p>
-          <p>Race-day photo discovery engineered around independent bib and face evidence.</p>
-          <span>India · Event imaging system · Est. 2026</span>
-        </div>
-        <div class="site-footer-links">
-          <p>Workflows</p>
-          <a href="/user">Find photos <span aria-hidden="true">→</span></a>
-          <a href="/upload">Upload photos <span aria-hidden="true">→</span></a>
-        </div>
-        <div class="site-footer-links">
-          <p>Operations</p>
-          <a href="/admin">Admin console <span aria-hidden="true">→</span></a>
-          <a href="/admin/events/new">Create event <span aria-hidden="true">→</span></a>
-        </div>
-      </div>
-      <div class="site-footer-bottom">
-        <span>© 2026 RaceFrame</span>
-        <span>OCR / FACE / HYBRID MATCH</span>
-      </div>
+      <p class="site-footer-wordmark">RACE<span>FRAME</span></p>
+      <p class="site-footer-note">designed by <a href="https://github.com/ronanrocking">ronan</a></p>
+      <span class="site-footer-copyright">&copy; 2026 RaceFrame</span>
     </footer>
     {% block scripts %}
     <script nonce="{{ csp_nonce }}">
       document.addEventListener("submit", (event) => {
         const message = event.target && event.target.dataset ? event.target.dataset.confirm : "";
-        if (message && !window.confirm(message)) event.preventDefault();
+        if (message && !window.confirm(message)) {
+          event.preventDefault();
+          return;
+        }
+        const form = event.target;
+        const submitter = event.submitter;
+        if (form && form.matches("form") && submitter) {
+          form.setAttribute("aria-busy", "true");
+          submitter.disabled = true;
+          submitter.textContent = form.dataset.pendingMessage || "Working...";
+        }
       });
     </script>
     {% endblock %}

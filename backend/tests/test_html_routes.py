@@ -55,7 +55,7 @@ def test_top_level_html_routes_render_with_current_starlette_api(
 
 def test_event_search_results_only_render_on_the_explicit_results_view(monkeypatch: pytest.MonkeyPatch) -> None:
     event = SimpleNamespace(id="event-id", name="Test Event")
-    search_results = Mock(return_value=(None, []))
+    search_results = Mock(return_value=(None, [], 0))
     monkeypatch.setattr(main_module, "get_published_event", lambda _db, _event_id: event)
     monkeypatch.setattr(main_module, "authorized_search_results", search_results)
 
@@ -84,3 +84,41 @@ def test_admin_dashboard_counts_uploaded_photos_not_processing_jobs(monkeypatch:
 
     assert response.status_code == 200
     assert b">7<" in response.body
+
+
+def test_participant_shell_hides_internal_navigation(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(main_module, "list_user_events", lambda _db: [])
+
+    response = main_module.user_event_list_page(browser_request("/user"), Mock())
+    body = response.body.decode("utf-8")
+
+    assert 'class="site-brand" href="/user"' in body
+    assert 'href="/admin">Admin</a>' not in body
+    assert 'href="/upload">Upload</a>' not in body
+    assert "Choose your race to find your photos." in body
+    assert "site-marquee" not in body
+
+
+def test_participant_event_list_renders_thumbnail_and_placeholder(monkeypatch: pytest.MonkeyPatch) -> None:
+    events = [
+        SimpleNamespace(event=SimpleNamespace(id="with-photo", name="City Race", event_date=None, location=None, thumbnail_object_key="events/photo.jpg")),
+        SimpleNamespace(event=SimpleNamespace(id="without-photo", name="Trail Race", event_date=None, location=None, thumbnail_object_key=None)),
+    ]
+    monkeypatch.setattr(main_module, "list_user_events", lambda _db: events)
+
+    response = main_module.user_event_list_page(browser_request("/user"), Mock())
+    body = response.body.decode("utf-8")
+
+    assert 'src="/user/events/with-photo/thumbnail"' in body
+    assert 'aria-label="Event photo not available"' in body
+
+
+def test_upload_shell_uses_task_specific_navigation(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(main_module, "list_published_events", lambda _db: [])
+
+    response = main_module.photographer_event_list_page(browser_request("/upload"), Mock())
+    body = response.body.decode("utf-8")
+
+    assert 'class="site-brand" href="/upload"' in body
+    assert 'href="/user">Find Photos</a>' not in body
+    assert "Choose a published event to start an upload." in body

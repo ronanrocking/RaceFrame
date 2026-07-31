@@ -2,27 +2,26 @@
 
 {% block body_class %}admin-theme user-page user-events-page{% endblock %}
 {% block shell_class %}admin-shell{% endblock %}
+{% block site_brand_href %}/user{% endblock %}
 
 {% block site_nav %}
-  <a class="site-nav-link" href="/admin">Admin</a>
-  <a class="site-nav-link" href="/upload">Upload</a>
   <a class="site-nav-link is-active" aria-current="page" href="/user">Find Photos</a>
 {% endblock %}
+{% block mobile_site_nav %}<a href="/user"><span>01</span>Find Photos</a>{% endblock %}
 
 {% block page_header_class %}user-page-header{% endblock %}
-{% block header_eyebrow %}<p class="page-eyebrow"><span>01</span> Participant Search</p>{% endblock %}
 {% block header_title %}Find Your Frame{% endblock %}
 {% block header_subtitle %}
-  <p class="admin-header-subtitle user-page-subtitle">Choose your event. RaceFrame combines independent bib and face evidence to recover the photographs that belong to your race.</p>
+  <p class="admin-header-subtitle user-page-subtitle">Choose your race to find your photos.</p>
 {% endblock %}
+{% block footer_note %}Find your race photos{% endblock %}
 {% block header_actions %}{% endblock %}
 
 {% block content %}
   <section class="admin-section user-events-section">
     <div class="admin-section-header">
       <div>
-        <p class="admin-section-label">Published Events</p>
-        <h2>Pick Your Race</h2>
+        <h2>Published Events</h2>
       </div>
       <span class="admin-panel-meta">{{ events|length }} event{{ "" if events|length == 1 else "s" }}</span>
     </div>
@@ -31,15 +30,22 @@
       <div class="user-event-grid">
         {% for item in events %}
           <article class="user-event-card">
-            <div class="user-event-heading">
-              <span class="user-event-index">{{ "%02d"|format(loop.index) }}</span>
-              <h3>{{ item.event.name }}</h3>
+            <div class="user-event-thumbnail">
+              {% if item.event.thumbnail_object_key %}
+                <img src="/user/events/{{ item.event.id }}/thumbnail" alt="" loading="lazy" />
+              {% else %}
+                <div class="user-event-thumbnail-placeholder" aria-label="Event photo not available">
+                  <svg viewBox="0 0 120 80" aria-hidden="true">
+                    <path d="M14 64h92M25 64V23h14v41M39 31h38M77 24v40M84 31h14v33" />
+                    <path d="M39 31h38v12H39zM39 43h38v12H39z" />
+                  </svg>
+                </div>
+              {% endif %}
             </div>
+            <div class="user-event-heading"><h3>{{ item.event.name }}</h3></div>
             <div class="user-event-meta">
               <span>Date: {{ item.event.event_date if item.event.event_date else "Not set" }}</span>
               <span>Location: {{ item.event.location if item.event.location else "Not set" }}</span>
-              <span>Participants: {{ item.participant_count }}</span>
-              <span>Photos: {{ item.photo_count }}</span>
             </div>
             <a class="admin-button admin-button-primary" href="/user/events/{{ item.event.id }}">Search Photos</a>
           </article>
@@ -48,7 +54,7 @@
     {% else %}
       <div class="admin-empty-state admin-empty-state-tight">
         <h4>No published events yet</h4>
-        <p>Once an event is published and photos are uploaded, it will appear here for public search.</p>
+        <p>Only published events appear here. Please check again later.</p>
       </div>
     {% endif %}
   </section>

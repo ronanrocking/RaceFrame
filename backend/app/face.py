@@ -24,7 +24,6 @@ from .models import (
     FaceSearchJob,
     FaceSearchResult,
     FaceSearchSession,
-    BibSearchJob,
     Participant,
     ParticipantFaceEmbedding,
     ParticipantFaceImage,
@@ -34,7 +33,6 @@ from .models import (
     PhotoJob,
     PhotoParticipantMatch,
     PhotoTextDetection,
-    SearchSessionPhotoResult,
 )
 
 
@@ -66,56 +64,6 @@ class FaceSearchUploadResult:
 class BibEvidence:
     strength: str
     matched_values: tuple[str, ...]
-
-
-def classify_face_score(score: float | None) -> str:
-    if score is None:
-        return "none"
-    if score >= settings.face_strong_similarity_threshold:
-        return "strong"
-    if score >= settings.face_medium_similarity_threshold:
-        return "medium"
-    if score >= settings.face_candidate_similarity_threshold:
-        return "weak"
-    return "none"
-
-
-def should_accept_hybrid_result(*, face_strength: str, bib_strength: str) -> bool:
-    return face_strength == "strong" or bib_strength == "strong" or (face_strength == "medium" and bib_strength == "weak")
-
-
-def build_hybrid_evidence_labels(
-    *, face_score: float | None, face_strength: str, bib_strength: str, bib_values: tuple[str, ...]
-) -> list[str]:
-    labels: list[str] = []
-    if bib_strength == "strong":
-        labels.append("Strong bib match")
-    elif bib_strength == "weak":
-        labels.append("Partial bib match")
-    if face_score is not None and face_strength != "none":
-        labels.append(f"{face_strength.title()} face score {face_score:.2f}")
-    elif bib_strength == "strong":
-        labels.append("Accepted by bib; no usable face match")
-    if bib_values:
-        labels.append(f"Matched text: {', '.join(bib_values)}")
-    return labels
-
-
-def build_materialized_photo_evidence_labels(photo: Photo, *, participant_id: uuid.UUID | None) -> list[str]:
-    """Persist the small card-safe evidence summary while the search is finalized."""
-
-    labels: list[str] = []
-    for match in photo.matches:
-        if participant_id is not None and match.participant_id != participant_id:
-            continue
-        if match.match_source == "ocr":
-            labels.append(f"OCR bib {match.matched_value}")
-        elif match.match_source == "face":
-            labels.append(f"Face score {match.confidence:.2f}" if match.confidence is not None else "Face match")
-        elif match.match_source == "ocr+face":
-            labels.append(f"OCR + face {match.confidence:.2f}" if match.confidence is not None else "OCR + face")
-    labels.append(f"{len(photo.face_detections)} face{'s' if len(photo.face_detections) != 1 else ''} detected")
-    return labels
 
 
 def utc_now() -> datetime:
@@ -668,8 +616,6 @@ def complete_face_search_job(
     if job.search_session.participant_id:
         apply_adaptive_reinforcement(session, search_session=job.search_session)
     mark_face_search_session_done_if_jobs_done(session, search_session=job.search_session)
-    if job.search_session.status == "completed":
-        materialize_search_session_photo_results(session, search_session=job.search_session)
     session.commit()
 
 
@@ -683,43 +629,30 @@ def fail_face_search_job(session: Session, *, job: FaceSearchJob, error_message:
     session.commit()
 
 
-def enqueue_bib_only_face_search_session(
+def create_bib_only_face_search_session(
     session: Session,
     *,
     event_id: uuid.UUID,
     participant: Participant,
-) -> FaceSearchSession:
+) -> tuple[FaceSearchSession, int]:
     search_session = FaceSearchSession(
         event_id=event_id,
         participant_id=participant.id,
-        status="queued",
+        status="processing",
         expires_at=utc_now() + timedelta(hours=max(1, settings.biometric_retention_hours)),
     )
     session.add(search_session)
     session.flush()
-    session.add(
-        BibSearchJob(
-            event_id=event_id,
-            search_session_id=search_session.id,
-            participant_id=participant.id,
-            status="queued",
-        )
+
+    seed_embeddings = select_bib_only_seed_embeddings(
+        session,
+        event_id=event_id,
+        participant=participant,
     )
-    session.commit()
-    session.refresh(search_session)
-    return search_session
-
-
-def complete_bib_only_search_job(session: Session, *, job: BibSearchJob) -> int:
-    """Run the legacy reinforcement logic after a worker lease has been claimed."""
-
-    participant = job.participant
-    search_session = job.search_session
-    seed_embeddings = select_bib_only_seed_embeddings(session, event_id=job.event_id, participant=participant)
     for embedding in seed_embeddings[:3]:
         create_face_search_results(
             session,
-            event_id=job.event_id,
+            event_id=event_id,
             search_session_id=search_session.id,
             embedding=embedding,
         )
@@ -727,15 +660,11 @@ def complete_bib_only_search_job(session: Session, *, job: BibSearchJob) -> int:
     if seed_embeddings:
         apply_adaptive_reinforcement(session, search_session=search_session, require_exact_bib=True)
 
-    materialize_search_session_photo_results(session, search_session=search_session)
-    job.status = "completed"
-    job.lease_expires_at = None
-    job.retry_after = None
-    job.finished_at = utc_now()
     search_session.status = "completed"
     search_session.finished_at = utc_now()
     session.commit()
-    return len(seed_embeddings)
+    session.refresh(search_session)
+    return search_session, len(seed_embeddings)
 
 
 def select_bib_only_seed_embeddings(
@@ -1014,121 +943,6 @@ def create_face_search_results(
         )
         upserted_count += 1
     return upserted_count
-
-
-def materialize_search_session_photo_results(session: Session, *, search_session: FaceSearchSession) -> int:
-    """Freeze the accepted-photo set used by both gallery paging and downloads.
-
-    This deliberately runs at search completion. The browser never has to repeat
-    hybrid scoring or hydrate every candidate solely to view another page.
-    """
-
-    session.query(SearchSessionPhotoResult).filter(
-        SearchSessionPhotoResult.search_session_id == search_session.id
-    ).delete(synchronize_session=False)
-
-    participant = search_session.participant
-    if participant is None:
-        rows = session.execute(
-            select(FaceSearchResult.photo_id, func.max(FaceSearchResult.similarity_score).label("best_score"))
-            .where(FaceSearchResult.search_session_id == search_session.id, FaceSearchResult.event_id == search_session.event_id)
-            .group_by(FaceSearchResult.photo_id)
-            .having(func.max(FaceSearchResult.similarity_score) >= settings.face_strong_similarity_threshold)
-            .order_by(func.max(FaceSearchResult.similarity_score).desc())
-            .limit(settings.max_search_results)
-        ).all()
-        candidates = [(photo_id, float(score), [f"Strong face score {float(score):.2f}"]) for photo_id, score in rows]
-    else:
-        score_rows = session.execute(
-            select(FaceSearchResult.photo_id, func.max(FaceSearchResult.similarity_score).label("best_score"))
-            .where(FaceSearchResult.search_session_id == search_session.id, FaceSearchResult.event_id == search_session.event_id)
-            .group_by(FaceSearchResult.photo_id)
-            .order_by(func.max(FaceSearchResult.similarity_score).desc())
-            .limit(settings.max_search_results)
-        ).all()
-        best_scores = {photo_id: float(score) for photo_id, score in score_rows}
-        ocr_ids = list(
-            session.execute(
-                select(PhotoParticipantMatch.photo_id)
-                .where(
-                    PhotoParticipantMatch.event_id == search_session.event_id,
-                    PhotoParticipantMatch.participant_id == participant.id,
-                    PhotoParticipantMatch.match_source.in_(("ocr", "ocr+face")),
-                )
-                .order_by(PhotoParticipantMatch.created_at.desc())
-                .limit(settings.max_search_results)
-            ).scalars()
-        )
-        candidate_ids = list(dict.fromkeys([*best_scores, *ocr_ids]))[: settings.max_search_results]
-        if not candidate_ids:
-            return 0
-        photos = (
-            session.execute(
-                select(Photo)
-                .where(Photo.event_id == search_session.event_id, Photo.id.in_(candidate_ids))
-                .options(selectinload(Photo.detections), selectinload(Photo.face_detections), selectinload(Photo.matches))
-            )
-            .scalars()
-            .unique()
-            .all()
-        )
-        candidates = []
-        bib_only = not search_session.images
-        for photo in photos:
-            face_score = best_scores.get(photo.id)
-            face_strength = classify_face_score(face_score)
-            if bib_only:
-                bib_values = exact_bib_match_values(photo.detections, participant.bib_number)
-                bib_strength = "strong" if bib_values else "none"
-                accepted = face_strength == "strong" or bib_strength == "strong"
-            else:
-                evidence = score_bib_evidence(photo.detections, participant.bib_number)
-                bib_values, bib_strength = evidence.matched_values, evidence.strength
-                accepted = should_accept_hybrid_result(face_strength=face_strength, bib_strength=bib_strength)
-            if not accepted:
-                continue
-            labels = build_hybrid_evidence_labels(
-                face_score=face_score,
-                face_strength=face_strength,
-                bib_strength=bib_strength,
-                bib_values=bib_values,
-            )
-            labels.extend(build_materialized_photo_evidence_labels(photo, participant_id=participant.id))
-            candidates.append((photo.id, face_score, labels, bib_strength == "strong", photo.created_at, len(photo.face_detections)))
-
-        candidates.sort(
-            key=lambda item: (item[1] or 0.0, 1 if item[3] else 0, item[4]),
-            reverse=True,
-        )
-        session.add_all(
-            SearchSessionPhotoResult(
-                event_id=search_session.event_id,
-                search_session_id=search_session.id,
-                photo_id=photo_id,
-                rank=rank,
-                best_face_score=face_score,
-                face_count=face_count,
-                evidence_labels=labels,
-            )
-            for rank, (photo_id, face_score, labels, _has_strong_bib, _created_at, face_count) in enumerate(candidates, start=1)
-        )
-        session.flush()
-        return len(candidates)
-
-    session.add_all(
-        SearchSessionPhotoResult(
-            event_id=search_session.event_id,
-            search_session_id=search_session.id,
-            photo_id=photo_id,
-            rank=rank,
-            best_face_score=score,
-            face_count=0,
-            evidence_labels=labels,
-        )
-        for rank, (photo_id, score, labels) in enumerate(candidates, start=1)
-    )
-    session.flush()
-    return len(candidates)
 
 
 def apply_adaptive_reinforcement(

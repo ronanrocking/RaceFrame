@@ -9,14 +9,13 @@
   <a class="site-nav-link" href="/user">Find Photos</a>
 {% endblock %}
 
-{% block header_eyebrow %}<p class="page-eyebrow"><span>01</span> Event Operations</p>{% endblock %}
-{% block header_title %}Admin Dashboard{% endblock %}
-{% block header_subtitle %}<p class="admin-header-subtitle">Build events, maintain rosters, and monitor the complete image-processing pipeline.</p>{% endblock %}
+{% block header_title %}Events{% endblock %}
+{% block header_subtitle %}<p class="admin-header-subtitle">Create events, manage rosters, and review photo processing.</p>{% endblock %}
 {% block header_actions %}{% endblock %}
 
 {% block content %}
   {% if message %}
-    <p class="message message-success admin-message">{{ message }}</p>
+    <p class="message message-{{ message_level }} admin-message" role="{% if message_level == 'error' %}alert{% else %}status{% endif %}">{{ message }}</p>
   {% endif %}
 
   <section class="admin-dashboard-strip">
@@ -40,7 +39,6 @@
   <section class="admin-dashboard-table-section">
     <div class="admin-section-header">
       <div>
-        <p class="admin-section-label">Event Index</p>
         <h2>Current Events</h2>
       </div>
       <span class="admin-panel-meta">{{ events|length }} total</span>
@@ -48,7 +46,7 @@
 
     {% if events %}
       <div class="admin-dashboard-table-wrap">
-        <table class="admin-dashboard-table">
+        <table class="admin-dashboard-table responsive-table">
           <thead>
             <tr>
               <th>Event Name</th>
@@ -57,26 +55,26 @@
               <th>Status</th>
               <th>Participants</th>
               <th>Created</th>
-              <th>Open</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
             {% for item in events %}
               <tr>
-                <td>
-                  <span class="admin-event-name">{{ item.event.name }}</span>
+                <td data-label="Event">
+                  <a class="admin-event-name" href="/admin/events/{{ item.event.id }}/edit">{{ item.event.name }}</a>
                   <span class="admin-event-slug">{{ item.event.slug }}</span>
                 </td>
-                <td>{{ item.event.event_date if item.event.event_date else "-" }}</td>
-                <td>{{ item.event.location if item.event.location else "-" }}</td>
-                <td>
+                <td data-label="Date">{{ item.event.event_date if item.event.event_date else "-" }}</td>
+                <td data-label="Location">{{ item.event.location if item.event.location else "-" }}</td>
+                <td data-label="Status">
                   <span class="admin-status-pill {% if item.event.status == 'published' %}admin-status-pill-published{% else %}admin-status-pill-draft{% endif %}">
                     {{ item.event.status }}
                   </span>
                 </td>
-                <td>{{ item.participant_count }}</td>
-                <td>{{ item.event.created_at.strftime("%Y-%m-%d") }}</td>
-                <td><a class="admin-open-link" href="/admin/events/{{ item.event.id }}/edit">Open</a></td>
+                <td data-label="Participants">{{ item.participant_count }}</td>
+                <td data-label="Created">{{ item.event.created_at.strftime("%Y-%m-%d") }}</td>
+                <td data-label="Action"><a class="admin-open-link" href="/admin/events/{{ item.event.id }}/edit">Manage</a></td>
               </tr>
             {% endfor %}
           </tbody>
