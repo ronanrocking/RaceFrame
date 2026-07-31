@@ -63,16 +63,29 @@ Never stamp it based only on its age or application version.
 
 1. Announce the window. Confirm current digest/revision, free DB/disk space,
    active sessions, queue depth, and a recent successful worker heartbeat.
-2. Produce and verify a fresh backup. Confirm the off-host copy exists.
-3. Stop/drain the old worker. Wait for current work or allow leases to expire;
-   do not leave an old protocol worker polling the hardened backend.
+2. For a destructive or non-reversible migration, produce and verify a fresh
+   off-host backup. Routine additive application migrations may use the
+   automated deploy helper, which retains a local configuration snapshot and
+   automatically restores a service image when startup fails.
+3. Use the one-command helper from a trusted operator workstation with the
+   immutable digest references in the release manifest:
+
+   ```powershell
+   .\scripts\deploy-production.ps1 -BackendImage 'ghcr.io/ronanrocking/raceframe-backend@sha256:...' -WorkerImage 'ghcr.io/ronanrocking/raceframe-worker@sha256:...'
+   ```
+
+   It drains the old worker, migrates and checks backend readiness, then starts
+   the matching worker. It never logs secret values, builds on a production
+   host, or accepts mutable image tags.
 4. On the first Alembic adoption only, repeat the rehearsed role transfer and
    `alembic stamp 20260718_0001` with the exact production backup available.
    Replace any prerelease `WORKER_JOB_LEASE_SECONDS`,
    `WORKER_JOB_RETRY_BASE_SECONDS`, or `WORKER_JOB_RETRY_MAX_SECONDS` entries
    with `WORKER_LEASE_SECONDS`, `WORKER_RETRY_BASE_SECONDS`, and
    `WORKER_RETRY_MAX_SECONDS`; set `WORKER_MAX_ATTEMPTS` explicitly.
-5. Set the new backend digest, pull it, then run the one-shot migration using
+5. The following manual procedure is the break-glass equivalent when the
+   deploy helper cannot be used. Set the new backend digest, pull it, then run
+   the one-shot migration using
    the schema-owner DSN:
 
    ```bash
