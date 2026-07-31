@@ -83,7 +83,7 @@ jobs:
       - name: Run lightweight worker safety tests
         run: |
           python -m pip install google-cloud-vision==3.15.0 numpy==2.4.6 pillow==12.3.0 requests==2.34.2
-          python -m pytest --quiet raceframe-worker/tests
+          PYTHONPATH=raceframe-worker python -m pytest --quiet raceframe-worker/tests
 
   dependency-and-secret-scan:
     runs-on: ubuntu-24.04
