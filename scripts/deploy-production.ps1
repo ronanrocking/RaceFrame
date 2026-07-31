@@ -38,6 +38,12 @@ cd "$HOME/raceframe/raceframe-worker"
 docker compose stop worker
 '@
 
+$resumeWorker = @'
+set -Eeuo pipefail
+cd "$HOME/raceframe/raceframe-worker"
+docker compose up -d worker
+'@
+
 $deployBackend = @'
 set -Eeuo pipefail
 image="$1"
@@ -106,7 +112,14 @@ try {
     Invoke-RemoteScript -HostName $WorkerHost -Script $deployWorker -Arguments @($WorkerImage)
 }
 catch {
-    Write-Error "Deployment failed. The changed service restores its prior image automatically; inspect its retained .env.deploy-backup-* snapshot before retrying."
+    Write-Warning 'Deployment failed; restoring the worker with its retained image configuration.'
+    try {
+        Invoke-RemoteScript -HostName $WorkerHost -Script $resumeWorker
+    }
+    catch {
+        Write-Warning 'The worker could not be restarted automatically; use its latest .env.deploy-backup-* snapshot.'
+    }
+    Write-Error "The changed service restores its prior image automatically; inspect its retained .env.deploy-backup-* snapshot before retrying."
     throw
 }
 
