@@ -25,8 +25,8 @@ def upgrade() -> None:
         sa.Column("photo_id", sa.Uuid(), nullable=False),
         sa.Column("rank", sa.Integer(), nullable=False),
         sa.Column("best_face_score", sa.Float(), nullable=True),
-        sa.Column("face_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("evidence_labels", sa.JSON(), nullable=False, server_default="[]"),
+        sa.Column("face_count", sa.Integer(), nullable=False),
+        sa.Column("evidence_labels", sa.JSON(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint("rank > 0", name="ck_search_session_photo_results_rank"),
         sa.CheckConstraint(
@@ -56,10 +56,10 @@ def upgrade() -> None:
         sa.Column("event_id", sa.Uuid(), nullable=False),
         sa.Column("search_session_id", sa.Uuid(), nullable=False),
         sa.Column("participant_id", sa.Uuid(), nullable=False),
-        sa.Column("job_type", sa.String(length=32), nullable=False, server_default="bib_only_search"),
-        sa.Column("status", sa.String(length=32), nullable=False, server_default="queued"),
-        sa.Column("attempt_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("max_attempts", sa.Integer(), nullable=False, server_default="5"),
+        sa.Column("job_type", sa.String(length=32), nullable=False),
+        sa.Column("status", sa.String(length=32), nullable=False),
+        sa.Column("attempt_count", sa.Integer(), nullable=False),
+        sa.Column("max_attempts", sa.Integer(), nullable=False),
         sa.Column("attempt_id", sa.Uuid(), nullable=True),
         sa.Column("claimed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("lease_expires_at", sa.DateTime(timezone=True), nullable=True),
@@ -79,10 +79,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["search_session_id"], ["face_search_sessions.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["participant_id"], ["participants.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("search_session_id"),
+        sa.UniqueConstraint("search_session_id", name="uq_bib_search_jobs_search_session"),
     )
     op.create_index("ix_bib_search_jobs_event_id", "bib_search_jobs", ["event_id"], unique=False)
-    op.create_index("ix_bib_search_jobs_search_session_id", "bib_search_jobs", ["search_session_id"], unique=False)
     op.create_index("ix_bib_search_jobs_participant_id", "bib_search_jobs", ["participant_id"], unique=False)
     op.create_index("ix_bib_search_jobs_status", "bib_search_jobs", ["status"], unique=False)
     op.create_index(
@@ -94,7 +93,6 @@ def downgrade() -> None:
     op.drop_index("ix_bib_search_jobs_claim", table_name="bib_search_jobs")
     op.drop_index("ix_bib_search_jobs_status", table_name="bib_search_jobs")
     op.drop_index("ix_bib_search_jobs_participant_id", table_name="bib_search_jobs")
-    op.drop_index("ix_bib_search_jobs_search_session_id", table_name="bib_search_jobs")
     op.drop_index("ix_bib_search_jobs_event_id", table_name="bib_search_jobs")
     op.drop_table("bib_search_jobs")
     op.drop_index("ix_search_session_photo_results_page", table_name="search_session_photo_results")

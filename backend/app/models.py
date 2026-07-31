@@ -585,6 +585,7 @@ class BibSearchJob(Base):
 
     __tablename__ = "bib_search_jobs"
     __table_args__ = (
+        UniqueConstraint("search_session_id", name="uq_bib_search_jobs_search_session"),
         CheckConstraint("job_type = 'bib_only_search'", name="ck_bib_search_jobs_job_type"),
         CheckConstraint(
             "status IN ('queued', 'processing', 'completed', 'failed', 'dead_lettered')",
@@ -598,7 +599,7 @@ class BibSearchJob(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
     search_session_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("face_search_sessions.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
+        ForeignKey("face_search_sessions.id", ondelete="CASCADE"), nullable=False
     )
     participant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("participants.id", ondelete="CASCADE"), nullable=False, index=True)
     job_type: Mapped[str] = mapped_column(String(32), nullable=False, default="bib_only_search")
